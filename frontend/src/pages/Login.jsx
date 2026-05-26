@@ -9,6 +9,23 @@ export default function Login({ setIsLogged }) {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
+      // 🚀 TRUCO DE EMERGENCIA: Bypass para saltarse la base de datos vacía
+      if (email === "admin@clinica.com" && password === "admin123") {
+        localStorage.setItem("token", "TOKEN_SIMULADO_ADMIN_12345");
+        localStorage.setItem("rol", "ADMIN");
+        setIsLogged(true); // Esto te cambia de pantalla automáticamente
+        return;
+      }
+
+      if (email === "recepcionista@clinica.com" && password === "123") {
+        localStorage.setItem("token", "TOKEN_SIMULADO_RECEPCIONISTA_12345");
+        localStorage.setItem("rol", "RECEPCIONISTA");
+        setIsLogged(true);
+        return;
+      }
+
+      // --- CÓDIGO REAL (Se usará cuando la BD esté completamente estructurada) ---
+      /*
       const res = await api.post("/auth/login", {
         email,
         password,
@@ -18,6 +35,11 @@ export default function Login({ setIsLogged }) {
       localStorage.setItem("rol", res.data.user.rol);
 
       setIsLogged(true);
+      */
+      // -------------------------------------------------------------------------
+
+      // Si ingresan credenciales que no son las de arriba, muestra error
+      setError("Credenciales incorrectas. Inténtalo de nuevo.");
     } catch (err) {
       setError("Credenciales incorrectas. Inténtalo de nuevo.");
     }
@@ -26,10 +48,8 @@ export default function Login({ setIsLogged }) {
   return (
     <div className="flex h-screen w-screen font-sans overflow-hidden bg-white">
       
-      {}
       <div className="w-1/2 flex flex-col justify-center items-center bg-white p-8 select-none">
         <div className="flex flex-col items-center">
-          {}
           <svg 
             className="w-44 h-44 text-[#11B9BB] mb-4" 
             viewBox="0 0 24 24" 
@@ -49,11 +69,9 @@ export default function Login({ setIsLogged }) {
         </div>
       </div>
 
-      {}
       <div className="w-1/2 bg-[#11B9BB] flex flex-col justify-center px-20 text-white relative shadow-[inset_10px_0_20px_rgba(0,0,0,0.05)]">
         <div className="w-full max-w-md mx-auto">
           
-          {}
           <div className="text-center mb-8">
             <h2 className="text-3xl font-semibold mb-2">
               ¡Bienvenido de vuelta!
@@ -62,7 +80,6 @@ export default function Login({ setIsLogged }) {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-5">
-            {}
             <div>
               <label className="block text-sm font-medium mb-1 opacity-95">Email</label>
               <input
@@ -75,7 +92,6 @@ export default function Login({ setIsLogged }) {
               />
             </div>
 
-            {}
             <div>
               <div className="flex justify-between items-center">
                 <label className="block text-sm font-medium opacity-95">Contraseña</label>
@@ -93,14 +109,12 @@ export default function Login({ setIsLogged }) {
               />
             </div>
 
-            {}
             {error && (
               <div className="bg-red-500/20 border border-red-400/30 p-3 rounded-lg text-red-100 text-xs font-medium animate-shake">
                 ⚠️ {error}
               </div>
             )}
 
-            {}
             <div className="pt-2">
               <button 
                 type="submit"
@@ -111,7 +125,6 @@ export default function Login({ setIsLogged }) {
             </div>
           </form>
 
-          {}
           <div className="text-center mt-8 text-xs opacity-85">
             <span>¿No tienes una cuenta? </span>
             <a href="#" className="font-bold hover:underline hover:text-cyan-100 transition">
