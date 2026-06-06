@@ -6,44 +6,28 @@ export default function Login({ setIsLogged }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    try {
-      // 🚀 TRUCO DE EMERGENCIA: Bypass para saltarse la base de datos vacía
-      if (email === "admin@clinica.com" && password === "admin123") {
-        localStorage.setItem("token", "TOKEN_SIMULADO_ADMIN_12345");
-        localStorage.setItem("rol", "ADMIN");
-        setIsLogged(true); // Esto te cambia de pantalla automáticamente
-        return;
-      }
+const handleLogin = async (e) => {
+  e.preventDefault();
 
-      if (email === "recepcionista@clinica.com" && password === "123") {
-        localStorage.setItem("token", "TOKEN_SIMULADO_RECEPCIONISTA_12345");
-        localStorage.setItem("rol", "RECEPCIONISTA");
-        setIsLogged(true);
-        return;
-      }
+  try {
+    setError("");
 
-      // --- CÓDIGO REAL (Se usará cuando la BD esté completamente estructurada) ---
-      /*
-      const res = await api.post("/auth/login", {
-        email,
-        password,
-      });
+    const res = await api.post("/auth/login", {
+      email,
+      password,
+    });
 
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("rol", res.data.user.rol);
+    localStorage.setItem("token", res.data.token);
+    localStorage.setItem("rol", res.data.user.rol);
 
-      setIsLogged(true);
-      */
-      // -------------------------------------------------------------------------
+    setIsLogged(true);
+  } catch (err) {
+    console.error(err);
+    setError("Credenciales incorrectas. Inténtalo de nuevo.");
+  }
+};
 
-      // Si ingresan credenciales que no son las de arriba, muestra error
-      setError("Credenciales incorrectas. Inténtalo de nuevo.");
-    } catch (err) {
-      setError("Credenciales incorrectas. Inténtalo de nuevo.");
-    }
-  };
+
 
   return (
     <div className="flex h-screen w-screen font-sans overflow-hidden bg-white">

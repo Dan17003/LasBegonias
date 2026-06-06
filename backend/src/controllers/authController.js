@@ -2,7 +2,7 @@ import { Usuario, Paciente } from "../models/index.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = "secreto"; // luego lo pasas a .env
+const JWT_SECRET = "secreto"; 
 
 // ==========================
 // 🔐 LOGIN GENERAL
