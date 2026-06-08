@@ -1,4 +1,4 @@
-import { Cita } from "../models/index.js";
+import { Cita, Paciente } from "../models/index.js";
 
 export const crearCita = async (req, res) => {
   const cita = await Cita.create(req.body);
@@ -6,6 +6,13 @@ export const crearCita = async (req, res) => {
 };
 
 export const listarCitas = async (req, res) => {
-  const citas = await Cita.findAll();
+  const citas = await Cita.findAll({
+    include: [
+      {
+        model: Paciente,
+      },
+    ],
+  });
+
   res.json(citas);
 };
