@@ -1,8 +1,21 @@
 import { useEffect, useState } from "react";
 import api from "../services/api";
+import {
+  getDeudaPaciente,
+  contarPresupuestosPendientes,
+  formatearMoneda,
+} from "../utils/finanzas";
+import {
+  getResumenCitas,
+  formatearFechaCorta,
+  textoRelativoPasado,
+} from "../utils/citas";
 
 export default function Pacientes() {
   const [pacientes, setPacientes] = useState([]);
+  const [citas, setCitas] = useState([]);
+  const [presupuestos, setPresupuestos] = useState([]);
+  const [pagos, setPagos] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [filtroActivo, setFiltroActivo] = useState("Todos");
 
@@ -21,24 +34,41 @@ export default function Pacientes() {
     setPacientes(res.data);
   };
 
+  const cargarDatos = async () => {
+    try {
+      const [pacientesRes, citasRes, presupuestosRes, pagosRes] = await Promise.all([
+        api.get("/pacientes"),
+        api.get("/citas"),
+        api.get("/presupuestos"),
+        api.get("/pagos"),
+      ]);
+
+      setPacientes(pacientesRes.data || []);
+      setCitas(citasRes.data || []);
+      setPresupuestos(presupuestosRes.data || []);
+      setPagos(pagosRes.data || []);
+    } catch (error) {
+      console.error(error);
+      await obtenerPacientes();
+    }
+  };
+
   useEffect(() => {
-    obtenerPacientes();
+    cargarDatos();
   }, []);
 
-  const pacientesFiltrados = pacientes.filter((p, index) => {
-    const deudaSimulada =
-      index === 2
-        ? 150
-        : index === 3
-          ? 80
-          : 0;
+  const getDeuda = (pacienteId) =>
+    getDeudaPaciente(presupuestos, pagos, pacienteId);
+
+  const pacientesFiltrados = pacientes.filter((paciente) => {
+    const deuda = getDeuda(paciente.id);
 
     if (filtroActivo === "Con deuda") {
-      return deudaSimulada > 0;
+      return deuda > 0;
     }
 
     if (filtroActivo === "Sin deuda") {
-      return deudaSimulada === 0;
+      return deuda === 0;
     }
 
     return true;
@@ -121,7 +151,7 @@ export default function Pacientes() {
       sexo: "",
     });
 
-    obtenerPacientes();
+    cargarDatos();
   };
 
 
@@ -171,15 +201,11 @@ export default function Pacientes() {
           { label: "Todos", count: pacientes.length },
           {
             label: "Con deuda",
-            count: pacientes.filter((p, index) =>
-              index === 2 || index === 3
-            ).length,
+            count: pacientes.filter((paciente) => getDeuda(paciente.id) > 0).length,
           },
           {
             label: "Sin deuda",
-            count: pacientes.filter((p, index) =>
-              index !== 2 && index !== 3
-            ).length,
+            count: pacientes.filter((paciente) => getDeuda(paciente.id) === 0).length,
           },
         ].map((tab) => (
           <button
@@ -221,16 +247,17 @@ export default function Pacientes() {
             </thead>
 
             <tbody className="text-sm divide-y divide-slate-50">
-              {pacientesFiltrados.map((p, index) => {
-                const esPar = index % 2 === 0;
-                const ultimaCitaSimulada = esPar ? "En 3 días" : "Hace 6 días";
-                const fechaCitaSimulada = esPar ? "18 may 2026" : "12 may 2026";
-                const proximaCita = esPar ? "25 may 2026" : "30 may 2026";
-                const estadoSimulado = index === 4 ? "Inactivo" : "Activo";
-                const deudaSimulada = index === 2 ? "S/ 150.00" : index === 3 ? "S/ 80.00" : "S/ 0";
+              {pacientesFiltrados.map((p) => {
+                const { ultima, proxima } = getResumenCitas(citas, p.id);
+                const deuda = getDeuda(p.id);
+                const presupuestosPendientes = contarPresupuestosPendientes(
+                  presupuestos,
+                  pagos,
+                  p.id
+                );
 
                 return (
-                  <tr key={p.id || index} className="hover:bg-slate-50/60 transition group">
+                  <tr key={p.id} className="hover:bg-slate-50/60 transition group">
                     <td className="py-4 px-6">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 bg-teal-50 border border-teal-100 rounded-full flex items-center justify-center text-sm font-bold text-[#11B9BB] overflow-hidden">
@@ -262,29 +289,47 @@ export default function Pacientes() {
 
                     <td className="py-4 px-6">
                       <div>
-                        <p className="text-xs font-semibold text-slate-700">{ultimaCitaSimulada}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">{fechaCitaSimulada}</p>
+                        {ultima ? (
+                          <>
+                            <p className="text-xs font-semibold text-slate-700">
+                              {textoRelativoPasado(ultima.fecha)}
+                            </p>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              {formatearFechaCorta(ultima.fecha)}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-xs text-slate-400">Sin cita previa</p>
+                        )}
                       </div>
                     </td>
 
                     <td className="py-4 px-6">
                       <div>
-                        <p className="text-xs font-semibold text-[#11B9BB]">
-                          {proximaCita}
-                        </p>
-                        <p className="text-[11px] text-slate-400">
-                          Programada
-                        </p>
+                        {proxima ? (
+                          <>
+                            <p className="text-xs font-semibold text-[#11B9BB]">
+                              {formatearFechaCorta(proxima.fecha)}
+                            </p>
+                            <p className="text-[11px] text-slate-400">
+                              {proxima.estado || "Programada"}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-xs text-slate-400">Sin cita programada</p>
+                        )}
                       </div>
                     </td>
 
                     <td className="py-4 px-6">
                       <div>
-                        <p className={`text-xs font-bold ${deudaSimulada !== "S/ 0" ? "text-rose-600" : "text-slate-700"}`}>
-                          {deudaSimulada}
+                        <p className={`text-xs font-bold ${deuda > 0 ? "text-rose-600" : "text-slate-700"}`}>
+                          {formatearMoneda(deuda)}
                         </p>
                         <p className="text-[10px] text-slate-400 font-medium">
-                          {deudaSimulada !== "S/ 0" ? "1 factura pendiente" : "Sin deuda"}
+                          {presupuestosPendientes > 0
+                            ? `${presupuestosPendientes} presupuesto${presupuestosPendientes > 1 ? "s" : ""} pendiente${presupuestosPendientes > 1 ? "s" : ""}`
+                            : "Sin deuda"}
                         </p>
                       </div>
                     </td>
