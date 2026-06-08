@@ -1,4 +1,4 @@
-import { Presupuesto, Paciente } from "../models/index.js";
+import { Presupuesto, Paciente, Pago } from "../models/index.js";
 
 export const crearPresupuesto = async (req, res) => {
   try {
@@ -63,6 +63,11 @@ export const eliminarPresupuesto = async (req, res) => {
     if (!presupuesto) {
       return res.status(404).json({ error: "Presupuesto no encontrado" });
     }
+
+    await Pago.update(
+      { presupuesto_id: null },
+      { where: { presupuesto_id: presupuesto.id } }
+    );
     await presupuesto.destroy();
     res.json({ mensaje: "Presupuesto eliminado" });
   } catch (error) {

@@ -4,6 +4,7 @@ import {
   listarPagos,
   obtenerPago,
   actualizarPago,
+  eliminarPago,
   obtenerPagosPorPaciente,
 } from "../controllers/pagoController.js";
 
@@ -14,6 +15,6 @@ router.get("/", listarPagos);
 router.get("/paciente/:paciente_id", obtenerPagosPorPaciente);
 router.get("/:id", obtenerPago);
 router.put("/:id", actualizarPago);
-
+router.delete("/:id", eliminarPago);
 
 export default router;

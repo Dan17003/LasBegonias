@@ -8,7 +8,6 @@ import Finanzas from "./Finanzas";
 import Usuarios from "./Usuarios";
 import Doctores from "./Doctores";
 import Reportes from "./Reportes";
-import Configuracion from "./Configuracion";
 
 export default function Dashboard({ setIsLogged }) {
     const [view, setView] = useState("inicio");
@@ -28,7 +27,6 @@ export default function Dashboard({ setIsLogged }) {
                 {view === "usuarios" && <Usuarios />}
                 {view === "doctores" && <Doctores />}
                 {view === "reportes" && <Reportes />}
-                {view === "configuracion" && <Configuracion />}
             </div>
 
         </div>

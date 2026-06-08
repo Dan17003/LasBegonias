@@ -1,13 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
+import { corregirEncoding } from "../utils/texto";
 
 export default function Agenda() {
   const [view, setView] = useState("dia");
   const [selectedDoctor, setSelectedDoctor] = useState("Todos");
   const [showModal, setShowModal] = useState(false);
+  const [editandoCita, setEditandoCita] = useState(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
 
-  const doctores = ["Todos", "Dr. Carlos Ruiz", "Dra. Tania Mamani"];
+  const [odontologos, setOdontologos] = useState([]);
 
   const coloresMotivos = {
     "Limpieza dental": "bg-cyan-50 text-cyan-700 border-cyan-200",
@@ -26,11 +28,60 @@ export default function Agenda() {
     hora_inicio: "",
     hora_fin: "",
     motivo: "Consulta general",
-    doctor: "Dr. Carlos Ruiz",
+    doctor: "",
     servicio: "",
     consultorio: "",
     nota_cita: "",
+    estado: "Programada",
   });
+
+  const formCitaVacio = () => ({
+    paciente_id: "",
+    fecha: "",
+    hora_inicio: "",
+    hora_fin: "",
+    motivo: "Consulta general",
+    doctor: doctoresDisponibles[0]?.nombre || "",
+    servicio: "",
+    consultorio: "",
+    nota_cita: "",
+    estado: "Programada",
+  });
+
+  const obtenerOdontologos = async () => {
+    try {
+      const res = await api.get("/odontologos");
+      const lista = (res.data || []).map((d) => ({
+        ...d,
+        nombre: corregirEncoding(d.nombre),
+        turno: corregirEncoding(d.turno),
+      }));
+      setOdontologos(lista);
+
+      const primerDisponible = lista.find((d) => d.disponible !== false);
+      if (primerDisponible) {
+        setFormCita((prev) => ({
+          ...prev,
+          doctor: prev.doctor || primerDisponible.nombre,
+        }));
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const nombresDoctores = useMemo(
+    () => ["Todos", ...odontologos.map((d) => corregirEncoding(d.nombre))],
+    [odontologos]
+  );
+
+  const doctoresDisponibles = odontologos.filter((d) => d.disponible !== false);
+
+  useEffect(() => {
+    if (selectedDoctor !== "Todos" && !nombresDoctores.includes(selectedDoctor)) {
+      setSelectedDoctor("Todos");
+    }
+  }, [nombresDoctores, selectedDoctor]);
 
   const obtenerPacientes = async () => {
     try {
@@ -53,6 +104,7 @@ export default function Agenda() {
   useEffect(() => {
     obtenerPacientes();
     obtenerCitas();
+    obtenerOdontologos();
   }, []);
 
   const horasTimeline = ["8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM"];
@@ -137,40 +189,78 @@ export default function Agenda() {
     });
   };
 
-  const registrarNuevaCita = async (e) => {
+  const cerrarModalCita = () => {
+    setShowModal(false);
+    setEditandoCita(null);
+    setFormCita(formCitaVacio());
+  };
+
+  const abrirCrearCita = () => {
+    setEditandoCita(null);
+    setFormCita(formCitaVacio());
+    setShowModal(true);
+  };
+
+  const abrirEditarCita = (cita) => {
+    setEditandoCita(cita);
+    setFormCita({
+      paciente_id: String(cita.paciente_id),
+      fecha: cita.fecha?.substring(0, 10) || "",
+      hora_inicio: cita.hora_inicio || "",
+      hora_fin: cita.hora_fin || "",
+      motivo: cita.motivo || "Consulta general",
+      doctor: cita.doctor || "",
+      servicio: cita.servicio || "",
+      consultorio: cita.consultorio || "",
+      nota_cita: cita.nota_cita || "",
+      estado: cita.estado || "Programada",
+    });
+    setShowModal(true);
+  };
+
+  const guardarCita = async (e) => {
     e.preventDefault();
 
+    const payload = {
+      paciente_id: Number(formCita.paciente_id),
+      fecha: formCita.fecha,
+      hora_inicio: formCita.hora_inicio,
+      hora_fin: formCita.hora_fin,
+      motivo: formCita.motivo,
+      doctor: formCita.doctor,
+      servicio: formCita.servicio,
+      consultorio: formCita.consultorio,
+      nota_cita: formCita.nota_cita,
+      estado: formCita.estado,
+    };
+
     try {
-      await api.post("/citas", {
-        paciente_id: Number(formCita.paciente_id),
-        fecha: formCita.fecha,
-        hora_inicio: formCita.hora_inicio,
-        hora_fin: formCita.hora_fin,
-        motivo: formCita.motivo,
-        doctor: formCita.doctor,
-        servicio: formCita.servicio,
-        consultorio: formCita.consultorio,
-        nota_cita: formCita.nota_cita,
-      });
+      if (editandoCita) {
+        await api.put(`/citas/${editandoCita.id}`, payload);
+      } else {
+        await api.post("/citas", payload);
+      }
 
       await obtenerCitas();
-
-      setShowModal(false);
-
-      setFormCita({
-        paciente_id: "",
-        fecha: "",
-        hora_inicio: "",
-        hora_fin: "",
-        motivo: "Consulta general",
-        doctor: "Dr. Carlos Ruiz",
-        servicio: "",
-        consultorio: "",
-        nota_cita: "",
-      });
-
+      cerrarModalCita();
     } catch (error) {
       console.error(error);
+      alert(error.response?.data?.error || "No se pudo guardar la cita.");
+    }
+  };
+
+  const eliminarCita = async () => {
+    if (!editandoCita) return;
+
+    const confirmar = window.confirm("¿Eliminar esta cita? Esta acción no se puede deshacer.");
+    if (!confirmar) return;
+
+    try {
+      await api.delete(`/citas/${editandoCita.id}`);
+      await obtenerCitas();
+      cerrarModalCita();
+    } catch (error) {
+      alert(error.response?.data?.error || "No se pudo eliminar la cita.");
     }
   };
 
@@ -188,7 +278,7 @@ export default function Agenda() {
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Odontólogo:</span>
           <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-            {doctores.map((doc) => (
+            {nombresDoctores.map((doc) => (
               <button
                 key={doc}
                 onClick={() => setSelectedDoctor(doc)}
@@ -246,7 +336,7 @@ export default function Agenda() {
           </div>
 
           <button
-            onClick={() => setShowModal(true)}
+            onClick={abrirCrearCita}
             className="bg-[#11B9BB] hover:bg-[#0ea5a7] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-sm flex items-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -288,7 +378,11 @@ export default function Agenda() {
 
                     <div className="flex-1 p-1.5 relative flex flex-col sm:flex-row gap-2">
                       {citasDeLaHora.map((cita) => (
-                        <div key={cita.id} className={`flex-1 p-2.5 rounded-xl border ${coloresMotivos[cita.motivo] || "bg-slate-50 text-slate-700 border-slate-200"} shadow-2xs flex flex-col justify-center`}>
+                        <div
+                          key={cita.id}
+                          onClick={() => abrirEditarCita(cita)}
+                          className={`flex-1 p-2.5 rounded-xl border cursor-pointer hover:opacity-90 ${coloresMotivos[cita.motivo] || "bg-slate-50 text-slate-700 border-slate-200"} shadow-2xs flex flex-col justify-center`}
+                        >
                           <p className="font-bold text-xs">
                             {cita.Paciente?.nombres}
                           </p>
@@ -317,7 +411,11 @@ export default function Agenda() {
                   <div className="p-3 space-y-2.5 flex-1 bg-slate-50/10 overflow-y-auto">
                     {citasDiaActual.length > 0 ? (
                       citasDiaActual.map((cita) => (
-                        <div key={cita.id} className={`p-2 rounded-xl border ${coloresMotivos[cita.motivo] || "bg-slate-50 text-slate-700 border-slate-200"} text-xs shadow-2xs`}>
+                        <div
+                          key={cita.id}
+                          onClick={() => abrirEditarCita(cita)}
+                          className={`p-2 rounded-xl border cursor-pointer hover:opacity-90 ${coloresMotivos[cita.motivo] || "bg-slate-50 text-slate-700 border-slate-200"} text-xs shadow-2xs`}
+                        >
                           <span className="font-bold block text-slate-800">{cita.Paciente?.nombres}</span>
                           <span className="text-[10px] block mt-0.5">{cita.hora_inicio}</span>
                           <span className="text-[9px] opacity-75">{cita.motivo}</span>
@@ -356,7 +454,11 @@ export default function Agenda() {
                       </div>
                       <div className="space-y-1 flex-1 overflow-y-auto">
                         {citasDiaDelMes.map((cita) => (
-                          <div key={cita.id} className={`text-[7.5px] p-1 rounded border ${coloresMotivos[cita.motivo] || "bg-slate-100 border-slate-200"}`}>
+                          <div
+                            key={cita.id}
+                            onClick={() => abrirEditarCita(cita)}
+                            className={`text-[7.5px] p-1 rounded border cursor-pointer hover:opacity-90 ${coloresMotivos[cita.motivo] || "bg-slate-100 border-slate-200"}`}
+                          >
                             <div className="font-bold text-slate-800 truncate">{cita.Paciente?.nombres || "Cita"}</div>
                             <div className="text-slate-600">{cita.hora_inicio?.substring(0, 5)}</div>
                           </div>
@@ -373,8 +475,10 @@ export default function Agenda() {
 
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
-          <form onSubmit={registrarNuevaCita} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100">
-            <h3 className="text-base font-bold text-slate-800 mb-4">Programación de Cita Dental</h3>
+          <form onSubmit={guardarCita} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-base font-bold text-slate-800 mb-4">
+              {editandoCita ? "Editar Cita Dental" : "Programación de Cita Dental"}
+            </h3>
 
             <div className="space-y-4">
               <div>
@@ -564,8 +668,28 @@ export default function Agenda() {
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Estado de la cita</label>
+                <select
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none font-medium text-slate-700"
+                  value={formCita.estado}
+                  onChange={(e) =>
+                    setFormCita({
+                      ...formCita,
+                      estado: e.target.value,
+                    })
+                  }
+                >
+                  <option value="Programada">Programada</option>
+                  <option value="Confirmada">Confirmada</option>
+                  <option value="Atendida">Atendida</option>
+                  <option value="Cancelada">Cancelada</option>
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">Asignar Odontólogo</label>
                 <select
+                  required
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none font-medium text-slate-700"
                   value={formCita.doctor}
                   onChange={(e) =>
@@ -575,8 +699,12 @@ export default function Agenda() {
                     })
                   }
                 >
-                  <option value="Dr. Carlos Ruiz">Dr. Carlos Ruiz</option>
-                  <option value="Dra. Tania Mamani">Dra. Tania Mamani</option>
+                  <option value="">Seleccionar odontólogo</option>
+                  {doctoresDisponibles.map((doc) => (
+                    <option key={doc.id} value={doc.nombre}>
+                      {doc.nombre} — {doc.especialidad}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -600,13 +728,26 @@ export default function Agenda() {
               />
             </div>
 
-            <div className="flex justify-end gap-2.5 mt-6 pt-4 border-t border-slate-100">
-              <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-500 rounded-xl">
-                Cancelar
-              </button>
-              <button type="submit" className="bg-[#11B9BB] text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-sm">
-                Agendar Cita
-              </button>
+            <div className="flex justify-between gap-2.5 mt-6 pt-4 border-t border-slate-100">
+              {editandoCita ? (
+                <button
+                  type="button"
+                  onClick={eliminarCita}
+                  className="px-4 py-2 text-xs font-bold text-rose-600 bg-rose-50 rounded-xl border border-rose-100"
+                >
+                  Eliminar
+                </button>
+              ) : (
+                <span />
+              )}
+              <div className="flex gap-2.5">
+                <button type="button" onClick={cerrarModalCita} className="px-4 py-2 text-xs font-semibold text-slate-500 rounded-xl">
+                  Cancelar
+                </button>
+                <button type="submit" className="bg-[#11B9BB] text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-sm">
+                  {editandoCita ? "Guardar Cambios" : "Agendar Cita"}
+                </button>
+              </div>
             </div>
           </form>
         </div>

@@ -2,7 +2,13 @@ import { Usuario, Paciente } from "../models/index.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 
-const JWT_SECRET = "secreto"; 
+const JWT_SECRET = "secreto";
+
+const PERMISOS_POR_ROL = {
+  admin: ["inicio", "usuarios", "doctores", "reportes"],
+  recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
+  odontologo: ["inicio", "agenda"],
+}; 
 
 // ==========================
 // 🔐 LOGIN GENERAL
@@ -23,6 +29,13 @@ export const login = async (req, res) => {
       return res.status(400).json({ error: "Incorrecto" });
     }
 
+    if (user.activo === false) {
+      return res.status(403).json({ error: "Tu cuenta está suspendida. Contacta al administrador." });
+    }
+
+    const rolNormalizado = user.rol?.toLowerCase();
+    const permisos = PERMISOS_POR_ROL[rolNormalizado] || user.permisos || [];
+
     const token = jwt.sign(
       { id: user.id, rol: user.rol },
       JWT_SECRET,
@@ -35,7 +48,9 @@ export const login = async (req, res) => {
       user: {
         id: user.id,
         email: user.email,
+        nombre: user.nombre,
         rol: user.rol,
+        permisos,
       },
     });
 
@@ -76,39 +91,6 @@ export const registerPaciente = async (req, res) => {
       message: "Paciente registrado",
       usuario,
       paciente,
-    });
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: error.message });
-  }
-};
-
-// ==========================
-// 👨‍💼 CREAR USUARIOS (ADMIN)
-// recepcionista / odontologo / admin
-// ==========================
-export const crearUsuario = async (req, res) => {
-  try {
-    const { email, password, rol } = req.body;
-
-    const existe = await Usuario.findOne({ where: { email } });
-
-    if (existe) {
-      return res.status(400).json({ error: "Usuario ya existe" });
-    }
-
-    const hash = await bcrypt.hash(password, 10);
-
-    const user = await Usuario.create({
-      email,
-      password: hash,
-      rol,
-    });
-
-    res.json({
-      message: "Usuario creado correctamente",
-      user,
     });
 
   } catch (error) {

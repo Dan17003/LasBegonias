@@ -69,10 +69,38 @@ export const actualizarPago = async (req, res) => {
     if (!pago) {
       return res.status(404).json({ error: "Pago no encontrado" });
     }
+
+    const { paciente_id, presupuesto_id } = req.body;
+
+    if (presupuesto_id) {
+      const presupuesto = await Presupuesto.findByPk(presupuesto_id);
+      if (!presupuesto) {
+        return res.status(404).json({ error: "Presupuesto no encontrado" });
+      }
+      if (presupuesto.paciente_id !== Number(paciente_id ?? pago.paciente_id)) {
+        return res.status(400).json({
+          error: "El presupuesto no pertenece al paciente seleccionado",
+        });
+      }
+    }
+
     await pago.update(req.body);
     res.json(pago);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+export const eliminarPago = async (req, res) => {
+  try {
+    const pago = await Pago.findByPk(req.params.id);
+    if (!pago) {
+      return res.status(404).json({ error: "Pago no encontrado" });
+    }
+    await pago.destroy();
+    res.json({ message: "Pago eliminado" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 };
 

@@ -19,6 +19,8 @@ const handleLogin = async (e) => {
 
     localStorage.setItem("token", res.data.token);
     localStorage.setItem("rol", res.data.user.rol);
+    localStorage.setItem("permisos", JSON.stringify(res.data.user.permisos || []));
+    localStorage.setItem("nombre", res.data.user.nombre || res.data.user.email);
 
     setIsLogged(true);
   } catch (err) {

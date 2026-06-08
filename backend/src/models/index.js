@@ -1,8 +1,10 @@
+import sequelize from "../config/db.js";
 import Usuario from "./Usuario.js";
 import Paciente from "./Paciente.js";
 import Cita from "./Cita.js";
 import Presupuesto from "./Presupuesto.js";
 import Pago from "./Pago.js";
+import Odontologo from "./Odontologo.js";
 
 
 Paciente.belongsTo(Usuario, { foreignKey: "usuario_id" });
@@ -20,4 +22,4 @@ Paciente.hasMany(Pago, { foreignKey: "paciente_id" });
 Pago.belongsTo(Presupuesto, { foreignKey: "presupuesto_id" });
 Presupuesto.hasMany(Pago, { foreignKey: "presupuesto_id" });
 
-export { Usuario, Paciente, Cita, Presupuesto, Pago };
+export { sequelize, Usuario, Paciente, Cita, Presupuesto, Pago, Odontologo };

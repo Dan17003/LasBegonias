@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import api from "../services/api";
+import { corregirEncoding } from "../utils/texto";
 import {
   toNumber,
   getPacienteId,
@@ -11,8 +12,11 @@ export default function Finanzas() {
     const [pacientes, setPacientes] = useState([]);
     const [presupuestos, setPresupuestos] = useState([]);
     const [pagos, setPagos] = useState([]);
+    const [odontologos, setOdontologos] = useState([]);
     const [showPresupuestoModal, setShowPresupuestoModal] = useState(false);
     const [showPagoModal, setShowPagoModal] = useState(false);
+    const [editandoPresupuesto, setEditandoPresupuesto] = useState(null);
+    const [editandoPago, setEditandoPago] = useState(null);
     const [filtroDeuda, setFiltroDeuda] = useState("");
     const [montoFiltro, setMontoFiltro] = useState("");
 
@@ -38,7 +42,23 @@ export default function Finanzas() {
         obtenerPacientes();
         obtenerPresupuestos();
         obtenerPagos();
+        obtenerOdontologos();
     }, []);
+
+    const obtenerOdontologos = async () => {
+        try {
+            const res = await api.get("/odontologos");
+            setOdontologos(
+                (res.data || []).map((doc) => ({
+                    ...doc,
+                    nombre: corregirEncoding(doc.nombre),
+                    turno: corregirEncoding(doc.turno),
+                }))
+            );
+        } catch (error) {
+            console.error(error);
+        }
+    };
 
     const obtenerPacientes = async () => {
         try {
@@ -69,7 +89,75 @@ export default function Finanzas() {
         }
     };
 
-    const crearPresupuesto = async (e) => {
+    const formPresupuestoVacio = () => ({
+        paciente_id: "",
+        descripcion: "",
+        monto: "",
+        fecha_vigencia: "",
+        doctor: "",
+    });
+
+    const formPagoVacio = () => ({
+        paciente_id: "",
+        presupuesto_id: "",
+        monto: "",
+        tipo_pago: "pago_total",
+        metodo: "efectivo",
+        descripcion: "",
+        doctor: "",
+    });
+
+    const cerrarPresupuestoModal = () => {
+        setShowPresupuestoModal(false);
+        setEditandoPresupuesto(null);
+        setFormPresupuesto(formPresupuestoVacio());
+    };
+
+    const cerrarPagoModal = () => {
+        setShowPagoModal(false);
+        setEditandoPago(null);
+        setFormPago(formPagoVacio());
+    };
+
+    const abrirCrearPresupuesto = () => {
+        setEditandoPresupuesto(null);
+        setFormPresupuesto(formPresupuestoVacio());
+        setShowPresupuestoModal(true);
+    };
+
+    const abrirEditarPresupuesto = (presupuesto) => {
+        setEditandoPresupuesto(presupuesto);
+        setFormPresupuesto({
+            paciente_id: String(presupuesto.paciente_id),
+            descripcion: presupuesto.descripcion,
+            monto: String(presupuesto.monto),
+            fecha_vigencia: presupuesto.fecha_vigencia?.substring(0, 10) || "",
+            doctor: presupuesto.doctor,
+        });
+        setShowPresupuestoModal(true);
+    };
+
+    const abrirCrearPago = () => {
+        setEditandoPago(null);
+        setFormPago(formPagoVacio());
+        setShowPagoModal(true);
+    };
+
+    const abrirEditarPago = (pago) => {
+        setEditandoPago(pago);
+        setFormPago({
+            paciente_id: String(pago.paciente_id),
+            presupuesto_id: pago.presupuesto_id ? String(pago.presupuesto_id) : "",
+            monto: String(pago.monto),
+            tipo_pago: pago.tipo_pago || "pago_total",
+            metodo: pago.metodo || "efectivo",
+            descripcion: pago.descripcion || "",
+            doctor: pago.doctor,
+        });
+        setShowPagoModal(true);
+    };
+
+    const guardarPresupuesto = async (e) => {
         e.preventDefault();
 
         if (
@@ -79,61 +167,84 @@ export default function Finanzas() {
             !formPresupuesto.fecha_vigencia ||
             !formPresupuesto.doctor
         ) {
-            console.error("Faltan datos");
             return;
         }
 
+        const payload = {
+            paciente_id: Number(formPresupuesto.paciente_id),
+            descripcion: formPresupuesto.descripcion,
+            monto: Number(formPresupuesto.monto),
+            fecha_vigencia: formPresupuesto.fecha_vigencia,
+            doctor: formPresupuesto.doctor,
+        };
+
         try {
-            await api.post("/presupuestos", {
-                paciente_id: Number(formPresupuesto.paciente_id),
-                descripcion: formPresupuesto.descripcion,
-                monto: Number(formPresupuesto.monto),
-                fecha_vigencia: formPresupuesto.fecha_vigencia,
-                doctor: formPresupuesto.doctor,
-            });
+            if (editandoPresupuesto) {
+                await api.put(`/presupuestos/${editandoPresupuesto.id}`, payload);
+            } else {
+                await api.post("/presupuestos", payload);
+            }
 
             obtenerPresupuestos();
-            setShowPresupuestoModal(false);
-
-            setFormPresupuesto({
-                paciente_id: "",
-                descripcion: "",
-                monto: "",
-                fecha_vigencia: "",
-                doctor: "",
-            });
-
+            cerrarPresupuestoModal();
         } catch (error) {
-            console.error("ERROR BACKEND:", error.response?.data || error.message);
+            alert(error.response?.data?.error || "No se pudo guardar el presupuesto.");
         }
     };
 
-    const registrarPago = async (e) => {
-        e.preventDefault();
+    const eliminarPresupuesto = async (presupuesto) => {
+        const confirmar = window.confirm(
+            `¿Eliminar el presupuesto "${presupuesto.descripcion}"? Los pagos vinculados quedarán sin presupuesto.`
+        );
+        if (!confirmar) return;
+
         try {
-            await api.post("/pagos", {
-                paciente_id: Number(formPago.paciente_id),
-                presupuesto_id: Number(formPago.presupuesto_id),
-                monto: Number(formPago.monto),
-                tipo_pago: formPago.tipo_pago,
-                metodo: formPago.metodo,
-                descripcion: formPago.descripcion,
-                doctor: formPago.doctor,
-            });
+            await api.delete(`/presupuestos/${presupuesto.id}`);
+            obtenerPresupuestos();
+            obtenerPagos();
+        } catch (error) {
+            alert(error.response?.data?.error || "No se pudo eliminar el presupuesto.");
+        }
+    };
+
+    const guardarPago = async (e) => {
+        e.preventDefault();
+
+        const payload = {
+            paciente_id: Number(formPago.paciente_id),
+            presupuesto_id: formPago.presupuesto_id ? Number(formPago.presupuesto_id) : null,
+            monto: Number(formPago.monto),
+            tipo_pago: formPago.tipo_pago,
+            metodo: formPago.metodo,
+            descripcion: formPago.descripcion,
+            doctor: formPago.doctor,
+        };
+
+        try {
+            if (editandoPago) {
+                await api.put(`/pagos/${editandoPago.id}`, payload);
+            } else {
+                await api.post("/pagos", payload);
+            }
+
             obtenerPagos();
             obtenerPresupuestos();
-            setShowPagoModal(false);
-            setFormPago({
-                paciente_id: "",
-                presupuesto_id: "",
-                monto: "",
-                tipo_pago: "pago_total",
-                metodo: "efectivo",
-                descripcion: "",
-                doctor: "",
-            });
+            cerrarPagoModal();
         } catch (error) {
-            console.error(error);
+            alert(error.response?.data?.error || "No se pudo guardar el pago.");
+        }
+    };
+
+    const eliminarPago = async (pago) => {
+        const confirmar = window.confirm("¿Eliminar este pago? Esta acción no se puede deshacer.");
+        if (!confirmar) return;
+
+        try {
+            await api.delete(`/pagos/${pago.id}`);
+            obtenerPagos();
+            obtenerPresupuestos();
+        } catch (error) {
+            alert(error.response?.data?.error || "No se pudo eliminar el pago.");
         }
     };
 
@@ -233,7 +344,7 @@ export default function Finanzas() {
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-slate-800">Gestión de Presupuestos</h3>
                             <button
-                                onClick={() => setShowPresupuestoModal(true)}
+                                onClick={abrirCrearPresupuesto}
                                 className="bg-[#11B9BB] hover:bg-[#0ea5a7] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-sm flex items-center gap-1.5"
                             >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -263,19 +374,33 @@ export default function Finanzas() {
                                             <td className="px-4 py-3 font-semibold text-[#11B9BB]">${p.monto}</td>
                                             <td className="px-4 py-3 text-slate-600">{p.doctor}</td>
                                             <td className="px-4 py-3 text-slate-500">{p.fecha_vigencia}</td>
-                                            <td className="px-4 py-3 text-center flex gap-2 justify-center">
-                                                <button
-                                                    onClick={() => imprimirPresupuesto(p)}
-                                                    className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100"
-                                                >
-                                                    Imprimir
-                                                </button>
-                                                <button
-                                                    onClick={() => enviarPresupuesto(p)}
-                                                    className="px-3 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-100"
-                                                >
-                                                    Enviar
-                                                </button>
+                                            <td className="px-4 py-3">
+                                                <div className="flex flex-wrap gap-1.5 justify-center">
+                                                    <button
+                                                        onClick={() => abrirEditarPresupuesto(p)}
+                                                        className="px-3 py-1 bg-slate-50 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-100 border border-slate-200"
+                                                    >
+                                                        Editar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => eliminarPresupuesto(p)}
+                                                        className="px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-xs font-semibold hover:bg-rose-100 border border-rose-100"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => imprimirPresupuesto(p)}
+                                                        className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100"
+                                                    >
+                                                        Imprimir
+                                                    </button>
+                                                    <button
+                                                        onClick={() => enviarPresupuesto(p)}
+                                                        className="px-3 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-100"
+                                                    >
+                                                        Enviar
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -290,7 +415,7 @@ export default function Finanzas() {
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-slate-800">Registro de Pagos</h3>
                             <button
-                                onClick={() => setShowPagoModal(true)}
+                                onClick={abrirCrearPago}
                                 className="bg-[#11B9BB] hover:bg-[#0ea5a7] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-sm flex items-center gap-1.5"
                             >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
@@ -311,6 +436,7 @@ export default function Finanzas() {
                                         <th className="px-4 py-3 text-left font-semibold text-slate-700">Presupuesto</th>
                                         <th className="px-4 py-3 text-left font-semibold text-slate-700">Odontólogo</th>
                                         <th className="px-4 py-3 text-left font-semibold text-slate-700">Fecha</th>
+                                        <th className="px-4 py-3 text-center font-semibold text-slate-700">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -330,6 +456,22 @@ export default function Finanzas() {
                                             <td className="px-4 py-3 text-slate-600">{pago.doctor}</td>
                                             <td className="px-4 py-3 text-slate-500">
                                                 {new Date(pago.created_at || pago.createdAt).toLocaleDateString()}
+                                            </td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex flex-wrap gap-1.5 justify-center">
+                                                    <button
+                                                        onClick={() => abrirEditarPago(pago)}
+                                                        className="px-3 py-1 bg-slate-50 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-100 border border-slate-200"
+                                                    >
+                                                        Editar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => eliminarPago(pago)}
+                                                        className="px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-xs font-semibold hover:bg-rose-100 border border-rose-100"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}
@@ -392,8 +534,10 @@ export default function Finanzas() {
 
             {showPresupuestoModal && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
-                    <form onSubmit={crearPresupuesto} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100">
-                        <h3 className="text-base font-bold text-slate-800 mb-4">Crear Presupuesto</h3>
+                    <form onSubmit={guardarPresupuesto} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100">
+                        <h3 className="text-base font-bold text-slate-800 mb-4">
+                            {editandoPresupuesto ? "Editar Presupuesto" : "Crear Presupuesto"}
+                        </h3>
 
                         <div className="space-y-4">
                             <div>
@@ -482,8 +626,11 @@ export default function Finanzas() {
                                     }
                                 >
                                     <option value="">Seleccionar odontólogo</option>
-                                    <option value="Dr. Carlos Ruiz">Dr. Carlos Ruiz</option>
-                                    <option value="Dra. Tania Mamani">Dra. Tania Mamani</option>
+                                    {odontologos.map((doc) => (
+                                        <option key={doc.id} value={doc.nombre}>
+                                            {doc.nombre} — {doc.especialidad}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                         </div>
@@ -491,7 +638,7 @@ export default function Finanzas() {
                         <div className="flex justify-end gap-2.5 mt-6 pt-4 border-t border-slate-100">
                             <button
                                 type="button"
-                                onClick={() => setShowPresupuestoModal(false)}
+                                onClick={cerrarPresupuestoModal}
                                 className="px-4 py-2 text-xs font-semibold text-slate-500 rounded-xl"
                             >
                                 Cancelar
@@ -500,7 +647,7 @@ export default function Finanzas() {
                                 type="submit"
                                 className="bg-[#11B9BB] text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-sm"
                             >
-                                Crear Presupuesto
+                                {editandoPresupuesto ? "Guardar Cambios" : "Crear Presupuesto"}
                             </button>
                         </div>
                     </form>
@@ -509,8 +656,10 @@ export default function Finanzas() {
 
             {showPagoModal && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
-                    <form onSubmit={registrarPago} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100">
-                        <h3 className="text-base font-bold text-slate-800 mb-4">Registrar Pago</h3>
+                    <form onSubmit={guardarPago} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100">
+                        <h3 className="text-base font-bold text-slate-800 mb-4">
+                            {editandoPago ? "Editar Pago" : "Registrar Pago"}
+                        </h3>
 
                         <div className="space-y-4">
                             <div>
@@ -647,8 +796,11 @@ export default function Finanzas() {
                                     }
                                 >
                                     <option value="">Seleccionar odontólogo</option>
-                                    <option value="Dr. Carlos Ruiz">Dr. Carlos Ruiz</option>
-                                    <option value="Dra. Tania Mamani">Dra. Tania Mamani</option>
+                                    {odontologos.map((doc) => (
+                                        <option key={doc.id} value={doc.nombre}>
+                                            {doc.nombre} — {doc.especialidad}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                         </div>
@@ -656,7 +808,7 @@ export default function Finanzas() {
                         <div className="flex justify-end gap-2.5 mt-6 pt-4 border-t border-slate-100">
                             <button
                                 type="button"
-                                onClick={() => setShowPagoModal(false)}
+                                onClick={cerrarPagoModal}
                                 className="px-4 py-2 text-xs font-semibold text-slate-500 rounded-xl"
                             >
                                 Cancelar
@@ -665,7 +817,7 @@ export default function Finanzas() {
                                 type="submit"
                                 className="bg-[#11B9BB] text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-sm"
                             >
-                                Registrar Pago
+                                {editandoPago ? "Guardar Cambios" : "Registrar Pago"}
                             </button>
                         </div>
                     </form>

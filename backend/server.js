@@ -1,17 +1,15 @@
 import app from "./src/app.js";
-import "./src/models/index.js";
+import { sequelize, Usuario, Odontologo } from "./src/models/index.js";
 
+const PORT = 3000;
 
-import pacienteRoutes from "./src/routes/pacienteRoutes.js";
-import presupuestoRoutes from "./src/routes/presupuestoRoutes.js";
-import pagoRoutes from "./src/routes/pagoRoutes.js";
-
-
-app.use("/api/pacientes", pacienteRoutes);
-app.use("/api/presupuestos", presupuestoRoutes);
-app.use("/api/pagos", pagoRoutes);
-
-
-app.listen(3000, () => {
-  console.log("Servidor en puerto 3000");
-});
+Promise.all([Usuario.sync({ alter: true }), Odontologo.sync()])
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Servidor en puerto ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Error al sincronizar la base de datos:", error);
+    process.exit(1);
+  });
