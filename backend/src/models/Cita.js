@@ -45,6 +45,14 @@ const Cita = sequelize.define(
       type: DataTypes.STRING,
       defaultValue: "Programada",
     },
+
+    token_respuesta: {
+      type: DataTypes.STRING,
+    },
+
+    fecha_respuesta_paciente: {
+      type: DataTypes.DATE,
+    },
   },
   {
     tableName: "citas",

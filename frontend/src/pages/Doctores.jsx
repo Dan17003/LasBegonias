@@ -118,7 +118,7 @@ export default function Doctores() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
           <div className="flex items-center gap-2.5">
-            <span className="text-2xl">🥼</span>
+           
             <h2 className="text-2xl font-bold text-slate-800">Control de Doctores</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">

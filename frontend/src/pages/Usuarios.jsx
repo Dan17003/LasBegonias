@@ -173,7 +173,7 @@ export default function Usuarios() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-100">
         <div>
           <div className="flex items-center gap-2.5">
-            <span className="text-2xl">🔑</span>
+            
             <h2 className="text-2xl font-bold text-slate-800">Gestión de Usuarios</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">

@@ -19,6 +19,19 @@ export default function Agenda() {
     "Ortodoncia": "bg-rose-50 text-rose-700 border-rose-200"
   };
 
+  const estilosEstado = {
+    Programada: "bg-slate-100 text-slate-600 border-slate-200",
+    Confirmada: "bg-teal-50 text-teal-700 border-teal-200",
+    Atendida: "bg-blue-50 text-blue-700 border-blue-200",
+    Cancelada: "bg-rose-50 text-rose-700 border-rose-200",
+  };
+
+  const badgeEstado = (estado) => (
+    <span className={`w-fit rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide ${estilosEstado[estado] || estilosEstado.Programada}`}>
+      {estado || "Programada"}
+    </span>
+  );
+
   const [citas, setCitas] = useState([]);
   const [pacientes, setPacientes] = useState([]);
 
@@ -389,6 +402,9 @@ export default function Agenda() {
                           <p className="text-[10px] opacity-85 mt-0.5">
                             {cita.hora_inicio} - {cita.motivo} ({cita.doctor})
                           </p>
+                          <div className="mt-1.5">
+                            {badgeEstado(cita.estado)}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -419,6 +435,9 @@ export default function Agenda() {
                           <span className="font-bold block text-slate-800">{cita.Paciente?.nombres}</span>
                           <span className="text-[10px] block mt-0.5">{cita.hora_inicio}</span>
                           <span className="text-[9px] opacity-75">{cita.motivo}</span>
+                          <span className="mt-1 block">
+                            {badgeEstado(cita.estado)}
+                          </span>
                         </div>
                       ))
                     ) : (
@@ -461,6 +480,7 @@ export default function Agenda() {
                           >
                             <div className="font-bold text-slate-800 truncate">{cita.Paciente?.nombres || "Cita"}</div>
                             <div className="text-slate-600">{cita.hora_inicio?.substring(0, 5)}</div>
+                            <div className="mt-0.5">{badgeEstado(cita.estado)}</div>
                           </div>
                         ))}
                       </div>

@@ -5,6 +5,7 @@ import Cita from "./Cita.js";
 import Presupuesto from "./Presupuesto.js";
 import Pago from "./Pago.js";
 import Odontologo from "./Odontologo.js";
+import Notificacion from "./Notificacion.js";
 
 
 Paciente.belongsTo(Usuario, { foreignKey: "usuario_id" });
@@ -22,4 +23,10 @@ Paciente.hasMany(Pago, { foreignKey: "paciente_id" });
 Pago.belongsTo(Presupuesto, { foreignKey: "presupuesto_id" });
 Presupuesto.hasMany(Pago, { foreignKey: "presupuesto_id" });
 
-export { sequelize, Usuario, Paciente, Cita, Presupuesto, Pago, Odontologo };
+Notificacion.belongsTo(Paciente, { foreignKey: "paciente_id" });
+Paciente.hasMany(Notificacion, { foreignKey: "paciente_id" });
+
+Notificacion.belongsTo(Cita, { foreignKey: "cita_id" });
+Cita.hasMany(Notificacion, { foreignKey: "cita_id" });
+
+export { sequelize, Usuario, Paciente, Cita, Presupuesto, Pago, Odontologo, Notificacion };

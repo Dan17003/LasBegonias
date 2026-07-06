@@ -8,6 +8,7 @@ import presupuestoRoutes from "./routes/presupuestoRoutes.js";
 import pagoRoutes from "./routes/pagoRoutes.js";
 import usuarioRoutes from "./routes/usuarioRoutes.js";
 import odontologoRoutes from "./routes/odontologoRoutes.js";
+import notificacionRoutes from "./routes/notificacionRoutes.js";
 
 const app = express();
 
@@ -21,5 +22,6 @@ app.use("/api/presupuestos", presupuestoRoutes);
 app.use("/api/pagos", pagoRoutes);
 app.use("/api/usuarios", usuarioRoutes);
 app.use("/api/odontologos", odontologoRoutes);
+app.use("/api/notificaciones", notificacionRoutes);
 
 export default app;

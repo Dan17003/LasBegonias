@@ -17,6 +17,7 @@ export default function Pacientes() {
   const [presupuestos, setPresupuestos] = useState([]);
   const [pagos, setPagos] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [editandoPaciente, setEditandoPaciente] = useState(null);
   const [filtroActivo, setFiltroActivo] = useState("Todos");
 
   const [form, setForm] = useState({
@@ -28,6 +29,19 @@ export default function Pacientes() {
     fecha_nacimiento: "",
     sexo: "",
   });
+
+  const formVacio = {
+    dni: "",
+    nombres: "",
+    apellidos: "",
+    telefono: "",
+    email: "",
+    fecha_nacimiento: "",
+    sexo: "",
+  };
+
+  const esEmailValido = (email) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 
   const obtenerPacientes = async () => {
     const res = await api.get("/pacientes");
@@ -86,21 +100,30 @@ export default function Pacientes() {
     `);
   };
 
+  const abrirCrearPaciente = () => {
+    setEditandoPaciente(null);
+    setForm(formVacio);
+    setShowModal(true);
+  };
+
   const editarPaciente = (paciente) => {
-    const nuevoNombre = prompt(
-      "Editar nombre del paciente:",
-      paciente.nombres
-    );
+    setEditandoPaciente(paciente);
+    setForm({
+      dni: paciente.dni || "",
+      nombres: paciente.nombres || "",
+      apellidos: paciente.apellidos || "",
+      telefono: paciente.telefono || "",
+      email: paciente.email || "",
+      fecha_nacimiento: paciente.fecha_nacimiento || "",
+      sexo: paciente.sexo || "",
+    });
+    setShowModal(true);
+  };
 
-    if (!nuevoNombre) return;
-
-    setPacientes((prev) =>
-      prev.map((p) =>
-        p.id === paciente.id
-          ? { ...p, nombres: nuevoNombre }
-          : p
-      )
-    );
+  const cerrarModal = () => {
+    setShowModal(false);
+    setEditandoPaciente(null);
+    setForm(formVacio);
   };
 
   const eliminarPaciente = async (id) => {
@@ -116,16 +139,18 @@ export default function Pacientes() {
       setPacientes((prev) =>
         prev.filter((p) => p.id !== id)
       );
+      cerrarModal();
     } catch (error) {
       console.error(error);
 
       setPacientes((prev) =>
         prev.filter((p) => p.id !== id)
       );
+      cerrarModal();
     }
   };
 
-  const crearPaciente = async () => {
+  const guardarPaciente = async () => {
     if (
       !form.dni ||
       !form.nombres ||
@@ -137,21 +162,23 @@ export default function Pacientes() {
       return;
     }
 
-    await api.post("/pacientes", form);
+    if (!esEmailValido(form.email)) {
+      alert("Ingrese un email valido.");
+      return;
+    }
 
-    setShowModal(false);
+    try {
+      if (editandoPaciente) {
+        await api.put(`/pacientes/${editandoPaciente.id}`, form);
+      } else {
+        await api.post("/pacientes", form);
+      }
 
-    setForm({
-      dni: "",
-      nombres: "",
-      apellidos: "",
-      telefono: "",
-      email: "",
-      fecha_nacimiento: "",
-      sexo: "",
-    });
-
-    cargarDatos();
+      cerrarModal();
+      cargarDatos();
+    } catch (error) {
+      alert(error.response?.data?.error || "No se pudo guardar el paciente.");
+    }
   };
 
 
@@ -187,7 +214,7 @@ export default function Pacientes() {
           </button>
 
           <button
-            onClick={() => setShowModal(true)}
+            onClick={abrirCrearPaciente}
             className="bg-[#11B9BB] hover:bg-[#0ea5a7] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-sm"
           >
             Nuevo Paciente
@@ -337,7 +364,7 @@ export default function Pacientes() {
                     { }
                     <td className="py-4 px-6 text-center">
                       <div className="flex items-center justify-center gap-3 text-slate-400 opacity-60 group-hover:opacity-100 transition">
-                        <button className="hover:text-[#11B9BB] transition p-0.5" title="Ver ficha">
+                        <button onClick={() => verPaciente(p)} className="hover:text-[#11B9BB] transition p-0.5" title="Ver ficha">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                             <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -348,7 +375,7 @@ export default function Pacientes() {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
                         </button>
-                        <button className="hover:text-slate-700 transition p-0.5" title="Opciones">
+                        <button onClick={() => editarPaciente(p)} className="hover:text-slate-700 transition p-0.5" title="Editar paciente">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                           </svg>
@@ -363,7 +390,7 @@ export default function Pacientes() {
         </div>
       </div>
 
-      {/* MODAL PARA AGREGAR PACIENTE */}
+      {/* MODAL PARA AGREGAR O EDITAR PACIENTE */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100">
@@ -372,9 +399,9 @@ export default function Pacientes() {
                 <svg className="w-4 h-4 text-[#11B9BB]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
-                Registrar Nuevo Paciente
+                {editandoPaciente ? "Editar Paciente" : "Registrar Nuevo Paciente"}
               </h3>
-              <button onClick={() => setShowModal(false)} className="text-slate-400 hover:text-slate-600 text-sm">✕</button>
+              <button onClick={cerrarModal} className="text-slate-400 hover:text-slate-600 text-sm">X</button>
             </div>
 
             <div className="space-y-4">
@@ -437,6 +464,8 @@ export default function Pacientes() {
                 <input
                   type="email"
                   placeholder="correo@gmail.com"
+                  required
+                  pattern="^[^\s@]+@[^\s@]+\.[^\s@]+$"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl"
                   value={form.email}
                   onChange={(e) =>
@@ -488,11 +517,16 @@ export default function Pacientes() {
             </div>
 
             <div className="flex justify-end gap-2.5 mt-6 pt-4 border-t border-slate-100">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 rounded-xl">
+              {editandoPaciente && (
+                <button onClick={() => eliminarPaciente(editandoPaciente.id)} className="mr-auto px-4 py-2 text-xs font-bold text-rose-600 bg-rose-50 rounded-xl border border-rose-100">
+                  Eliminar
+                </button>
+              )}
+              <button onClick={cerrarModal} className="px-4 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-50 rounded-xl">
                 Cancelar
               </button>
-              <button onClick={crearPaciente} className="bg-[#11B9BB] text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-sm">
-                Guardar Registro
+              <button onClick={guardarPaciente} className="bg-[#11B9BB] text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-sm">
+                {editandoPaciente ? "Guardar Cambios" : "Guardar Registro"}
               </button>
             </div>
           </div>

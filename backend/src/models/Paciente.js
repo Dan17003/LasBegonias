@@ -24,6 +24,9 @@ const Paciente = sequelize.define(
 
     email: {
       type: DataTypes.STRING,
+      validate: {
+        isEmail: true,
+      },
     },
 
     fecha_nacimiento: {
