@@ -34,7 +34,10 @@ export const login = async (req, res) => {
     }
 
     const rolNormalizado = user.rol?.toLowerCase();
-    const permisos = PERMISOS_POR_ROL[rolNormalizado] || user.permisos || [];
+    const permisosPersonalizados = Array.isArray(user.permisos) && user.permisos.length > 0
+      ? user.permisos
+      : null;
+    const permisos = permisosPersonalizados || PERMISOS_POR_ROL[rolNormalizado] || [];
 
     const token = jwt.sign(
       { id: user.id, rol: user.rol },

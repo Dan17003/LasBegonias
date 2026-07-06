@@ -42,7 +42,33 @@ export const filtrarCitasMes = (citas, mesKey) =>
   citas.filter((c) => perteneceAlMes(c.fecha, mesKey));
 
 export const filtrarPagosMes = (pagos, mesKey) =>
-  pagos.filter((p) => perteneceAlMes(p.created_at, mesKey));
+  pagos.filter((p) => perteneceAlMes(p.created_at || p.createdAt, mesKey));
+
+const MESES_CORTOS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+export const obtenerMesesSemestre = (anio, semestre) => {
+  const inicio = semestre === 1 ? 0 : 6;
+  return Array.from({ length: 6 }, (_, i) => {
+    const mes = inicio + i;
+    const value = `${anio}-${String(mes + 1).padStart(2, "0")}`;
+    const label = `${MESES_CORTOS[mes]} ${anio}`;
+    return { value, label, mes, anio };
+  });
+};
+
+export const calcularTendenciaSemestre = (pagos, anio, semestre) => {
+  const meses = obtenerMesesSemestre(anio, semestre);
+  return meses.map((mes) => {
+    const total = pagos
+      .filter((pago) => {
+        const fecha = parseFecha(pago.created_at || pago.createdAt);
+        if (!fecha) return false;
+        return fecha.getFullYear() === anio && fecha.getMonth() === mes.mes;
+      })
+      .reduce((sum, pago) => sum + toNumber(pago.monto), 0);
+    return { ...mes, total };
+  });
+};
 
 export const calcularResumenMes = (citas, pagos, mesKey) => {
   const citasMes = filtrarCitasMes(citas, mesKey);

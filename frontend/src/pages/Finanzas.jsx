@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { corregirEncoding } from "../utils/texto";
 import {
@@ -7,6 +7,7 @@ import {
   calcularDeudas,
   formatearMoneda,
 } from "../utils/finanzas";
+import { exportarExcel, descargarPDF, imprimirHTML } from "../utils/exportar";
 
 export default function Finanzas() {
     const [tab, setTab] = useState("presupuestos");
@@ -18,8 +19,9 @@ export default function Finanzas() {
     const [showPagoModal, setShowPagoModal] = useState(false);
     const [editandoPresupuesto, setEditandoPresupuesto] = useState(null);
     const [editandoPago, setEditandoPago] = useState(null);
-    const [filtroDeuda, setFiltroDeuda] = useState("");
+    const [busquedaDeuda, setBusquedaDeuda] = useState("");
     const [montoFiltro, setMontoFiltro] = useState("");
+    const [ordenDeuda, setOrdenDeuda] = useState("saldo_desc");
 
     const [formPresupuesto, setFormPresupuesto] = useState({
         paciente_id: "",
@@ -138,9 +140,30 @@ export default function Finanzas() {
         setShowPresupuestoModal(true);
     };
 
+    const saldoPresupuesto = (presupuestoId) => {
+        const item = calcularDeudas(presupuestos, pagos).find(
+            (deuda) => deuda.presupuesto.id === Number(presupuestoId)
+        );
+        return item ? item.saldo : 0;
+    };
+
     const abrirCrearPago = () => {
         setEditandoPago(null);
         setFormPago(formPagoVacio());
+        setShowPagoModal(true);
+    };
+
+    const abrirPagoDesdeDeuda = ({ presupuesto }) => {
+        setEditandoPago(null);
+        setFormPago({
+            paciente_id: String(getPacienteId(presupuesto)),
+            presupuesto_id: String(presupuesto.id),
+            monto: String(saldoPresupuesto(presupuesto.id)),
+            tipo_pago: "pago_parcial",
+            metodo: "efectivo",
+            descripcion: `Abono a: ${presupuesto.descripcion}`,
+            doctor: presupuesto.doctor || "",
+        });
         setShowPagoModal(true);
     };
 
@@ -211,10 +234,22 @@ export default function Finanzas() {
     const guardarPago = async (e) => {
         e.preventDefault();
 
+        const monto = Number(formPago.monto);
+        if (formPago.presupuesto_id) {
+            const saldo = saldoPresupuesto(formPago.presupuesto_id);
+            const saldoAjustado = editandoPago
+                ? saldo + toNumber(editandoPago.monto)
+                : saldo;
+            if (monto > saldoAjustado + 0.01) {
+                alert(`El monto no puede superar el saldo pendiente (${formatearMoneda(saldoAjustado)}).`);
+                return;
+            }
+        }
+
         const payload = {
             paciente_id: Number(formPago.paciente_id),
             presupuesto_id: formPago.presupuesto_id ? Number(formPago.presupuesto_id) : null,
-            monto: Number(formPago.monto),
+            monto,
             tipo_pago: formPago.tipo_pago,
             metodo: formPago.metodo,
             descripcion: formPago.descripcion,
@@ -251,53 +286,127 @@ export default function Finanzas() {
 
     const imprimirPresupuesto = (presupuesto) => {
         const paciente = pacientes.find(p => p.id === presupuesto.paciente_id);
-        const ventana = window.open("", "", "width=800,height=600");
-        ventana.document.write(`
-      <html>
-        <head>
-          <title>Presupuesto</title>
-          <style>
-            body { font-family: Arial; margin: 20px; }
-            h1 { text-align: center; }
-            .header { border-bottom: 2px solid #11B9BB; padding-bottom: 10px; }
-            .details { margin: 20px 0; }
-            .details p { margin: 5px 0; }
-            .amount { font-size: 18px; font-weight: bold; color: #11B9BB; margin-top: 20px; }
-            .footer { margin-top: 30px; text-align: center; font-size: 12px; color: #666; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <h1>Presupuesto - Clínica Las Begonias</h1>
-          </div>
-          <div class="details">
-            <p><strong>Paciente:</strong> ${paciente?.nombres} ${paciente?.apellidos}</p>
-            <p><strong>Descripción:</strong> ${presupuesto.descripcion}</p>
-            <p><strong>Vigencia:</strong> ${presupuesto.fecha_vigencia}</p>
-            <p class="amount">Monto: S/ ${toNumber(presupuesto.monto).toFixed(2)}</p>
-          </div>
-          <div class="footer">
-            <p>Generado el ${new Date().toLocaleDateString()}</p>
-          </div>
-        </body>
-      </html>
-    `);
-        ventana.document.close();
-        ventana.print();
+        const saldo = saldoPresupuesto(presupuesto.id);
+        const pagado = toNumber(presupuesto.monto) - saldo;
+
+        imprimirHTML({
+            titulo: "Presupuesto - Clinica Las Begonias",
+            contenido: `
+                <h1>Presupuesto - Clinica Las Begonias</h1>
+                <div style="margin:24px 0;padding:16px;border:1px solid #e2e8f0;border-radius:12px;">
+                    <p><strong>Paciente:</strong> ${paciente?.nombres || ""} ${paciente?.apellidos || ""}</p>
+                    <p><strong>Odontologo:</strong> ${presupuesto.doctor || "—"}</p>
+                    <p><strong>Descripcion:</strong> ${presupuesto.descripcion}</p>
+                    <p><strong>Vigencia:</strong> ${presupuesto.fecha_vigencia}</p>
+                    <p style="font-size:20px;color:#11B9BB;margin-top:16px;"><strong>Monto total:</strong> ${formatearMoneda(presupuesto.monto)}</p>
+                    <p><strong>Pagado:</strong> ${formatearMoneda(pagado)}</p>
+                    <p><strong>Saldo pendiente:</strong> ${formatearMoneda(saldo)}</p>
+                </div>
+            `,
+        });
     };
 
-    const enviarPresupuesto = (presupuesto) => {
-        alert(`Presupuesto enviado a ${pacientes.find(p => p.id === presupuesto.paciente_id)?.nombres} al correo registrado`);
+    const enviarPresupuesto = async (presupuesto) => {
+        const paciente = pacientes.find(p => p.id === presupuesto.paciente_id);
+        if (!paciente?.email) {
+            alert("El paciente no tiene correo registrado.");
+            return;
+        }
+        alert(`Presupuesto preparado para enviar a ${paciente.email}. (Funcionalidad de correo en desarrollo)`);
     };
 
-    const deudasPendientes = calcularDeudas(
-        presupuestos,
-        pagos,
-        montoFiltro ? Number(montoFiltro) : 0
-    );
+    const deudasPendientes = useMemo(() => {
+        const base = calcularDeudas(
+            presupuestos,
+            pagos,
+            montoFiltro ? Number(montoFiltro) : 0
+        );
+
+        let lista = base.map((deuda) => {
+            const paciente = pacientes.find(
+                (p) => p.id === getPacienteId(deuda.presupuesto)
+            );
+            const nombreCompleto = `${paciente?.nombres || ""} ${paciente?.apellidos || ""}`.trim();
+            const montoTotal = toNumber(deuda.presupuesto.monto);
+            const porcentajePagado = montoTotal
+                ? Math.min(Math.round((deuda.pagado / montoTotal) * 100), 100)
+                : 0;
+            const vencida = new Date(deuda.presupuesto.fecha_vigencia) < new Date();
+
+            return { ...deuda, paciente, nombreCompleto, porcentajePagado, vencida };
+        });
+
+        if (busquedaDeuda.trim()) {
+            const termino = busquedaDeuda.toLowerCase();
+            lista = lista.filter(
+                (d) =>
+                    d.nombreCompleto.toLowerCase().includes(termino) ||
+                    d.presupuesto.descripcion.toLowerCase().includes(termino)
+            );
+        }
+
+        lista.sort((a, b) => {
+            if (ordenDeuda === "saldo_desc") return b.saldo - a.saldo;
+            if (ordenDeuda === "saldo_asc") return a.saldo - b.saldo;
+            if (ordenDeuda === "vigencia") {
+                return new Date(a.presupuesto.fecha_vigencia) - new Date(b.presupuesto.fecha_vigencia);
+            }
+            return b.saldo - a.saldo;
+        });
+
+        return lista;
+    }, [presupuestos, pagos, montoFiltro, pacientes, busquedaDeuda, ordenDeuda]);
+
+    const exportarDeudasExcel = () => {
+        exportarExcel(
+            [{
+                nombre: "Deudas",
+                datos: deudasPendientes.map((d) => ({
+                    Paciente: d.nombreCompleto,
+                    Descripcion: d.presupuesto.descripcion,
+                    Odontologo: d.presupuesto.doctor,
+                    Vigencia: d.presupuesto.fecha_vigencia,
+                    "Monto total": toNumber(d.presupuesto.monto),
+                    Pagado: d.pagado,
+                    "Saldo pendiente": d.saldo,
+                })),
+            }],
+            `deudas-begonias-${new Date().toISOString().slice(0, 10)}`
+        );
+    };
+
+    const exportarDeudasPDF = () => {
+        descargarPDF({
+            titulo: "Reporte de Deudas - Clinica Las Begonias",
+            periodo: new Date().toLocaleDateString("es-PE"),
+            nombreArchivo: `deudas-begonias-${new Date().toISOString().slice(0, 10)}`,
+            resumen: [
+                { label: "Total pendiente", value: formatearMoneda(totalPendiente) },
+                { label: "Presupuestos", value: deudasPendientes.length },
+                { label: "Cobranza", value: `${porcentajeCobrado}%` },
+            ],
+            tablas: [{
+                titulo: "Saldos pendientes por paciente",
+                columnas: [
+                    { header: "Paciente", key: "paciente" },
+                    { header: "Descripcion", key: "descripcion" },
+                    { header: "Total", key: "total" },
+                    { header: "Pagado", key: "pagado" },
+                    { header: "Saldo", key: "saldo" },
+                ],
+                filas: deudasPendientes.map((d) => ({
+                    paciente: d.nombreCompleto,
+                    descripcion: d.presupuesto.descripcion,
+                    total: formatearMoneda(d.presupuesto.monto),
+                    pagado: formatearMoneda(d.pagado),
+                    saldo: formatearMoneda(d.saldo),
+                })),
+            }],
+        });
+    };
     const totalPresupuestado = presupuestos.reduce((sum, p) => sum + toNumber(p.monto), 0);
     const totalPagado = pagos.reduce((sum, p) => sum + toNumber(p.monto), 0);
-    const totalPendiente = deudasPendientes.reduce((sum, item) => sum + item.saldo, 0);
+    const totalPendiente = calcularDeudas(presupuestos, pagos).reduce((sum, item) => sum + item.saldo, 0);
     const porcentajeCobrado = totalPresupuestado
         ? Math.min(Math.round((totalPagado / totalPresupuestado) * 100), 100)
         : 0;
@@ -306,13 +415,6 @@ export default function Finanzas() {
         presupuestos.filter(
             (presupuesto) => getPacienteId(presupuesto) === Number(pacienteId)
         );
-
-    const saldoPresupuesto = (presupuestoId) => {
-        const item = calcularDeudas(presupuestos, pagos).find(
-            (deuda) => deuda.presupuesto.id === Number(presupuestoId)
-        );
-        return item ? item.saldo : 0;
-    };
 
     const tabs = [
         { id: "presupuestos", label: "Presupuestos" },
@@ -509,47 +611,128 @@ export default function Finanzas() {
 
                 {tab === "deudas" && (
                     <div>
-                        <div className="mb-6 flex gap-3">
-                            <input
-                                type="number"
-                                placeholder="Filtrar por monto mínimo..."
-                                value={montoFiltro}
-                                onChange={(e) => setMontoFiltro(e.target.value)}
-                                className="px-4 py-2 border border-slate-200 rounded-xl text-sm flex-1"
-                            />
-                            <button
-                                onClick={() => setMontoFiltro("")}
-                                className="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-200"
-                            >
-                                Limpiar
-                            </button>
+                        <div className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                            <div>
+                                <h3 className="text-lg font-bold text-slate-800">Control de Deudas</h3>
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                    {deudasPendientes.length} presupuesto{deudasPendientes.length !== 1 ? "s" : ""} con saldo pendiente
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={exportarDeudasExcel}
+                                    className="px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold border border-emerald-100 hover:bg-emerald-100"
+                                >
+                                    Excel
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={exportarDeudasPDF}
+                                    className="px-3 py-2 bg-rose-50 text-rose-700 rounded-xl text-xs font-bold border border-rose-100 hover:bg-rose-100"
+                                >
+                                    PDF
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {deudasPendientes.map(({ presupuesto, pagado, saldo }) => {
-                                const paciente = pacientes.find(
-                                    (p) => p.id === getPacienteId(presupuesto)
-                                );
+                        <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <input
+                                type="text"
+                                placeholder="Buscar paciente o tratamiento..."
+                                value={busquedaDeuda}
+                                onChange={(e) => setBusquedaDeuda(e.target.value)}
+                                className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm md:col-span-2 focus:ring-2 focus:ring-[#11B9BB] outline-none"
+                            />
+                            <input
+                                type="number"
+                                placeholder="Monto minimo (S/)"
+                                value={montoFiltro}
+                                onChange={(e) => setMontoFiltro(e.target.value)}
+                                className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none"
+                            />
+                            <select
+                                value={ordenDeuda}
+                                onChange={(e) => setOrdenDeuda(e.target.value)}
+                                className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-600 focus:ring-2 focus:ring-[#11B9BB] outline-none"
+                            >
+                                <option value="saldo_desc">Mayor saldo primero</option>
+                                <option value="saldo_asc">Menor saldo primero</option>
+                                <option value="vigencia">Por vencimiento</option>
+                            </select>
+                        </div>
 
-                                return (
-                                    <div key={presupuesto.id} className="border border-slate-200 rounded-xl p-4 bg-red-50/30">
-                                        <h4 className="font-bold text-slate-800 mb-1">
-                                            {paciente?.nombres} {paciente?.apellidos}
-                                        </h4>
-                                        <p className="text-sm text-slate-500 mb-2">{presupuesto.descripcion}</p>
-                                        <div className="space-y-1 text-sm text-slate-700">
-                                            <p><span className="font-semibold">Monto Total:</span> {formatearMoneda(presupuesto.monto)}</p>
-                                            <p><span className="font-semibold">Pagado:</span> {formatearMoneda(pagado)}</p>
-                                            <p className="text-red-600 font-bold text-base">Saldo Pendiente: {formatearMoneda(saldo)}</p>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {deudasPendientes.map((deuda) => (
+                                <div
+                                    key={deuda.presupuesto.id}
+                                    className={`rounded-2xl border p-5 transition hover:shadow-md ${
+                                        deuda.vencida
+                                            ? "border-rose-200 bg-gradient-to-br from-rose-50/80 to-white"
+                                            : "border-slate-200 bg-gradient-to-br from-amber-50/40 to-white"
+                                    }`}
+                                >
+                                    <div className="flex items-start justify-between gap-3 mb-3">
+                                        <div>
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <h4 className="font-bold text-slate-800">
+                                                    {deuda.nombreCompleto || "Paciente no encontrado"}
+                                                </h4>
+                                                {deuda.vencida && (
+                                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-600 border border-rose-200">
+                                                        Vencido
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-sm text-slate-500 mt-0.5">{deuda.presupuesto.descripcion}</p>
+                                            <p className="text-xs text-slate-400 mt-1">
+                                                {deuda.presupuesto.doctor} · Vigencia: {deuda.presupuesto.fecha_vigencia}
+                                            </p>
+                                        </div>
+                                        <div className="text-right shrink-0">
+                                            <p className="text-[10px] font-bold uppercase text-slate-400">Saldo</p>
+                                            <p className="text-xl font-black text-rose-600">{formatearMoneda(deuda.saldo)}</p>
                                         </div>
                                     </div>
-                                );
-                            })}
+
+                                    <div className="mb-3">
+                                        <div className="flex justify-between text-xs text-slate-500 mb-1">
+                                            <span>Cobrado: {formatearMoneda(deuda.pagado)}</span>
+                                            <span>Total: {formatearMoneda(deuda.presupuesto.monto)}</span>
+                                        </div>
+                                        <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                                            <div
+                                                className="h-full rounded-full bg-gradient-to-r from-[#0d8f91] to-[#11B9BB]"
+                                                style={{ width: `${deuda.porcentajePagado}%` }}
+                                            />
+                                        </div>
+                                        <p className="text-[10px] text-slate-400 mt-1 text-right">{deuda.porcentajePagado}% pagado</p>
+                                    </div>
+
+                                    <div className="flex gap-2 pt-3 border-t border-slate-100">
+                                        <button
+                                            type="button"
+                                            onClick={() => abrirPagoDesdeDeuda(deuda)}
+                                            className="flex-1 px-3 py-2 bg-[#11B9BB] hover:bg-[#0ea5a7] text-white rounded-xl text-xs font-bold transition"
+                                        >
+                                            Registrar pago
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => imprimirPresupuesto(deuda.presupuesto)}
+                                            className="px-3 py-2 bg-slate-50 text-slate-600 rounded-xl text-xs font-bold border border-slate-200 hover:bg-slate-100"
+                                        >
+                                            Imprimir
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
                         </div>
 
                         {deudasPendientes.length === 0 && (
-                            <div className="text-center py-8 text-slate-400">
-                                <p>No hay pacientes con deuda</p>
+                            <div className="text-center py-12 rounded-2xl border border-dashed border-slate-200 bg-slate-50/50">
+                                <p className="text-slate-500 font-medium">No hay deudas pendientes</p>
+                                <p className="text-xs text-slate-400 mt-1">Todos los presupuestos estan al dia o no coinciden con los filtros.</p>
                             </div>
                         )}
                     </div>

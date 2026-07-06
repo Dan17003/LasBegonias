@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { ESPECIALIDADES, TURNOS } from "../constants/odontologo";
 import { corregirEncoding } from "../utils/texto";
@@ -17,6 +17,9 @@ export default function Doctores() {
   const [form, setForm] = useState(FORM_VACIO);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroEstado, setFiltroEstado] = useState("todos");
+  const [filtroEspecialidad, setFiltroEspecialidad] = useState("todas");
 
   const cargarDoctores = async () => {
     try {
@@ -113,6 +116,29 @@ export default function Doctores() {
     }
   };
 
+  const doctoresFiltrados = useMemo(() => {
+    const termino = busqueda.trim().toLowerCase();
+
+    return doctores.filter((doc) => {
+      const disponible = doc.disponible !== false;
+      const coincideEstado =
+        filtroEstado === "todos" ||
+        (filtroEstado === "activos" && disponible) ||
+        (filtroEstado === "ausentes" && !disponible);
+      const coincideEspecialidad =
+        filtroEspecialidad === "todas" || doc.especialidad === filtroEspecialidad;
+      const coincideBusqueda =
+        !termino ||
+        doc.nombre.toLowerCase().includes(termino) ||
+        doc.especialidad.toLowerCase().includes(termino);
+
+      return coincideEstado && coincideEspecialidad && coincideBusqueda;
+    });
+  }, [doctores, busqueda, filtroEstado, filtroEspecialidad]);
+
+  const doctoresActivos = doctores.filter((doc) => doc.disponible !== false).length;
+  const doctoresAusentes = doctores.length - doctoresActivos;
+
   return (
     <div className="p-8 w-full max-w-[1400px] mx-auto font-sans text-slate-700">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
@@ -133,13 +159,55 @@ export default function Doctores() {
         </button>
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+        {[
+          ["Odontólogos", doctores.length],
+          ["Activos", doctoresActivos],
+          ["Ausentes", doctoresAusentes],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-2xl border border-white bg-white px-5 py-4 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+            <p className="mt-1 text-2xl font-black text-slate-950">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <input
+          type="text"
+          placeholder="Buscar doctor o especialidad..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="rounded-2xl border border-white bg-white px-4 py-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-[#11B9BB]"
+        />
+        <select
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value)}
+          className="rounded-2xl border border-white bg-white px-4 py-3 text-sm font-bold text-slate-600 shadow-sm outline-none focus:ring-2 focus:ring-[#11B9BB]"
+        >
+          <option value="todos">Todos los estados</option>
+          <option value="activos">Activos</option>
+          <option value="ausentes">Ausentes</option>
+        </select>
+        <select
+          value={filtroEspecialidad}
+          onChange={(e) => setFiltroEspecialidad(e.target.value)}
+          className="rounded-2xl border border-white bg-white px-4 py-3 text-sm font-bold text-slate-600 shadow-sm outline-none focus:ring-2 focus:ring-[#11B9BB]"
+        >
+          <option value="todas">Todas las especialidades</option>
+          {ESPECIALIDADES.map((esp) => (
+            <option key={esp} value={esp}>{esp}</option>
+          ))}
+        </select>
+      </div>
+
       {cargando ? (
         <p className="text-center text-sm text-slate-400 py-12">Cargando odontólogos...</p>
-      ) : doctores.length === 0 ? (
+      ) : doctoresFiltrados.length === 0 ? (
         <p className="text-center text-sm text-slate-400 py-12">No hay odontólogos registrados.</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {doctores.map((doc) => {
+          {doctoresFiltrados.map((doc) => {
             const partesNombre = doc.nombre.split(" ");
             const inicialAvatar = partesNombre[2]
               ? partesNombre[2].charAt(0)

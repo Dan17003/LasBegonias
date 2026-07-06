@@ -7,12 +7,6 @@ export const PERMISOS_POR_ROL = {
 export const normalizarRol = (rol) => (rol || "").toLowerCase();
 
 export const obtenerPermisosUsuario = () => {
-  const rol = normalizarRol(localStorage.getItem("rol"));
-
-  if (PERMISOS_POR_ROL[rol]) {
-    return PERMISOS_POR_ROL[rol];
-  }
-
   try {
     const guardados = JSON.parse(localStorage.getItem("permisos") || "[]");
     if (Array.isArray(guardados) && guardados.length > 0) {
@@ -22,7 +16,8 @@ export const obtenerPermisosUsuario = () => {
     // ignorar JSON inválido
   }
 
-  return PERMISOS_POR_ROL.recepcionista;
+  const rol = normalizarRol(localStorage.getItem("rol"));
+  return PERMISOS_POR_ROL[rol] || PERMISOS_POR_ROL.recepcionista;
 };
 
 export const tienePermiso = (modulo) => obtenerPermisosUsuario().includes(modulo);

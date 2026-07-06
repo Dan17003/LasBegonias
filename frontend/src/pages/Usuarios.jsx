@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 
 const ROL_LABELS = {
@@ -39,6 +39,8 @@ export default function Usuarios() {
   const [form, setForm] = useState(FORM_VACIO);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroRol, setFiltroRol] = useState("todos");
 
   const cargarDatos = async () => {
     try {
@@ -168,6 +170,24 @@ export default function Usuarios() {
     }
   };
 
+  const usuariosFiltrados = useMemo(() => {
+    const termino = busqueda.trim().toLowerCase();
+
+    return usuarios.filter((usuario) => {
+      const rol = normalizarRol(usuario.rol);
+      const coincideRol = filtroRol === "todos" || rol === filtroRol;
+      const coincideBusqueda =
+        !termino ||
+        (usuario.nombre || "").toLowerCase().includes(termino) ||
+        (usuario.email || "").toLowerCase().includes(termino);
+
+      return coincideRol && coincideBusqueda;
+    });
+  }, [usuarios, busqueda, filtroRol]);
+
+  const usuariosActivos = usuarios.filter((usuario) => usuario.activo !== false).length;
+  const usuariosBloqueados = usuarios.length - usuariosActivos;
+
   return (
     <div className="p-8 w-full max-w-[1400px] mx-auto font-sans text-slate-700">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 pb-4 border-b border-slate-100">
@@ -189,11 +209,44 @@ export default function Usuarios() {
         </button>
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+        {[
+          ["Usuarios", usuarios.length],
+          ["Activos", usuariosActivos],
+          ["Bloqueados", usuariosBloqueados],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-2xl border border-white bg-white px-5 py-4 shadow-sm">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p>
+            <p className="mt-1 text-2xl font-black text-slate-950">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-5 flex flex-col md:flex-row gap-3">
+        <input
+          type="text"
+          placeholder="Buscar por nombre o correo..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="flex-1 rounded-2xl border border-white bg-white px-4 py-3 text-sm shadow-sm outline-none focus:ring-2 focus:ring-[#11B9BB]"
+        />
+        <select
+          value={filtroRol}
+          onChange={(e) => setFiltroRol(e.target.value)}
+          className="rounded-2xl border border-white bg-white px-4 py-3 text-sm font-bold text-slate-600 shadow-sm outline-none focus:ring-2 focus:ring-[#11B9BB]"
+        >
+          <option value="todos">Todos los roles</option>
+          <option value="admin">Administrador</option>
+          <option value="recepcionista">Recepcionista</option>
+          <option value="odontologo">Odontologo</option>
+        </select>
+      </div>
+
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           {cargando ? (
             <p className="p-8 text-center text-sm text-slate-400">Cargando usuarios...</p>
-          ) : usuarios.length === 0 ? (
+          ) : usuariosFiltrados.length === 0 ? (
             <p className="p-8 text-center text-sm text-slate-400">No hay usuarios registrados.</p>
           ) : (
             <table className="w-full text-left border-collapse">
@@ -208,7 +261,7 @@ export default function Usuarios() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50 text-sm">
-                {usuarios.map((usuario) => {
+                {usuariosFiltrados.map((usuario) => {
                   const inicial = (usuario.nombre || usuario.email).charAt(0).toUpperCase();
                   const permisos = usuario.permisos || [];
 

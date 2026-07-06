@@ -7,9 +7,11 @@ import {
   formatearSoles,
   filtrarCitasMes,
   filtrarPagosMes,
+  calcularTendenciaSemestre,
 } from "../utils/reportes";
 import { calcularDeudas, toNumber } from "../utils/finanzas";
-import { exportarCSV, exportarPDF } from "../utils/exportar";
+import { descargarPDF, exportarExcel } from "../utils/exportar";
+import GraficoTendenciaIngresos from "../components/GraficoTendenciaIngresos";
 
 const Card = ({ label, value, detail, tone = "teal" }) => {
   const tones = {
@@ -63,18 +65,16 @@ const agruparPor = (items, keyFn, valueFn = () => 1) =>
     return acc;
   }, {});
 
-const mesKeyDeFecha = (fecha) => {
-  const date = new Date(fecha);
-  if (Number.isNaN(date.getTime())) return "";
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-};
-
 export default function Reportes() {
   const [citas, setCitas] = useState([]);
   const [pagos, setPagos] = useState([]);
   const [presupuestos, setPresupuestos] = useState([]);
   const [odontologos, setOdontologos] = useState([]);
   const [filtroMes, setFiltroMes] = useState("");
+  const [anioTendencia, setAnioTendencia] = useState(new Date().getFullYear());
+  const [semestreTendencia, setSemestreTendencia] = useState(
+    new Date().getMonth() < 6 ? 1 : 2
+  );
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
@@ -143,12 +143,7 @@ export default function Reportes() {
       (pago) => toNumber(pago.monto)
     );
     const citasPorServicio = agruparPor(citasMes, (cita) => cita.servicio || cita.motivo || "Sin servicio");
-    const tendenciaMensual = meses.slice(0, 6).reverse().map((mes) => {
-      const total = pagos
-        .filter((pago) => mesKeyDeFecha(pago.created_at || pago.createdAt) === mes.value)
-        .reduce((sum, pago) => sum + toNumber(pago.monto), 0);
-      return { ...mes, total };
-    });
+    const tendenciaMensual = calcularTendenciaSemestre(pagos, anioTendencia, semestreTendencia);
 
     return {
       citasMes,
@@ -162,49 +157,166 @@ export default function Reportes() {
       citasPorServicio,
       tendenciaMensual,
     };
-  }, [citas, pagos, presupuestos, filtroMes, meses]);
+  }, [citas, pagos, presupuestos, filtroMes, meses, anioTendencia, semestreTendencia]);
 
-  const exportarExcel = () => {
-    exportarCSV(
+  const exportarExcelReporte = () => {
+    exportarExcel(
       [
         {
-          Periodo: periodoLabel,
-          "Total recaudado": formatearSoles(resumen.totalRecaudado),
-          "Citas atendidas": resumen.citasAtendidas,
-          "Total citas": resumen.citasTotal,
-          "Tasa inasistencias": `${resumen.tasaInasistencias}%`,
-          "Deuda activa": formatearSoles(analitica.totalDeuda),
+          nombre: "Resumen",
+          datos: [
+            {
+              Periodo: periodoLabel,
+              "Total recaudado": formatearSoles(resumen.totalRecaudado),
+              "Citas atendidas": resumen.citasAtendidas,
+              "Total citas": resumen.citasTotal,
+              "Tasa exito": `${resumen.tasaExito}%`,
+              "Tasa inasistencias": `${resumen.tasaInasistencias}%`,
+              "Deuda activa": formatearSoles(analitica.totalDeuda),
+              "Presupuestado historico": formatearSoles(analitica.totalPresupuestado),
+            },
+          ],
         },
-        ...rendimientoDoctores.map((r) => ({
-          Periodo: periodoLabel,
-          Odontologo: r.doctor,
-          Especialidad: r.especialidad,
-          Citas: r.citas,
-          Cumplimiento: r.efectividad,
-          Ingresos: r.ingresos,
-        })),
+        {
+          nombre: "Doctores",
+          datos: rendimientoDoctores.map((r) => ({
+            Odontologo: r.doctor,
+            Especialidad: r.especialidad,
+            Citas: r.citas,
+            Cumplimiento: r.efectividad,
+            Ingresos: r.ingresosNum,
+          })),
+        },
+        {
+          nombre: "Tendencia",
+          datos: analitica.tendenciaMensual.map((m) => ({
+            Mes: m.label,
+            Ingresos: formatearSoles(m.total),
+          })),
+        },
+        {
+          nombre: "Estados",
+          datos: Object.entries(analitica.estados).map(([estado, total]) => ({
+            Estado: estado,
+            Citas: total,
+          })),
+        },
+        {
+          nombre: "Metodos Pago",
+          datos: Object.entries(analitica.metodosPago).map(([metodo, total]) => ({
+            Metodo: metodo,
+            Total: formatearSoles(total),
+          })),
+        },
+        {
+          nombre: "Servicios",
+          datos: Object.entries(analitica.citasPorServicio).map(([servicio, total]) => ({
+            Servicio: servicio,
+            Citas: total,
+          })),
+        },
+        {
+          nombre: "Deudas",
+          datos: analitica.deudas.map((d) => ({
+            Paciente: d.presupuesto.paciente_id,
+            Descripcion: d.presupuesto.descripcion,
+            Total: formatearSoles(d.presupuesto.monto),
+            Pagado: formatearSoles(d.pagado),
+            Saldo: formatearSoles(d.saldo),
+          })),
+        },
       ],
       `reporte-begonias-${filtroMes}`
     );
   };
 
   const exportarReportePDF = () => {
-    exportarPDF({
-      titulo: "Reportes y Estadisticas - Clinica Las Begonias",
+    descargarPDF({
+      titulo: "Reporte ejecutivo - Clinica Las Begonias",
       periodo: periodoLabel,
-      resumen: {
-        totalRecaudado: formatearSoles(resumen.totalRecaudado),
-        citasAtendidas: `${resumen.citasAtendidas} de ${resumen.citasTotal}`,
-        tasaInasistencias: `${resumen.tasaInasistencias}%`,
-      },
-      tabla: rendimientoDoctores,
+      nombreArchivo: `reporte-begonias-${filtroMes}`,
+      resumen: [
+        { label: "Total recaudado", value: formatearSoles(resumen.totalRecaudado) },
+        { label: "Citas", value: `${resumen.citasAtendidas}/${resumen.citasTotal}` },
+        { label: "Inasistencias", value: `${resumen.tasaInasistencias}%` },
+        { label: "Deuda activa", value: formatearSoles(analitica.totalDeuda) },
+      ],
+      tablas: [
+        {
+          titulo: "Tendencia de ingresos del semestre",
+          columnas: [
+            { header: "Mes", key: "mes" },
+            { header: "Ingresos", key: "ingresos" },
+          ],
+          filas: analitica.tendenciaMensual.map((m) => ({
+            mes: m.label,
+            ingresos: formatearSoles(m.total),
+          })),
+        },
+        {
+          titulo: "Productividad por odontologo",
+          columnas: [
+            { header: "Odontologo", key: "doctor" },
+            { header: "Especialidad", key: "especialidad" },
+            { header: "Citas", key: "citas" },
+            { header: "Cumplimiento", key: "efectividad" },
+            { header: "Ingresos", key: "ingresos" },
+          ],
+          filas: rendimientoDoctores,
+        },
+        {
+          titulo: "Estados de citas",
+          columnas: [
+            { header: "Estado", key: "estado" },
+            { header: "Total", key: "total" },
+          ],
+          filas: Object.entries(analitica.estados).map(([estado, total]) => ({
+            estado,
+            total,
+          })),
+        },
+        {
+          titulo: "Metodos de pago",
+          columnas: [
+            { header: "Metodo", key: "metodo" },
+            { header: "Total", key: "total" },
+          ],
+          filas: Object.entries(analitica.metodosPago).map(([metodo, total]) => ({
+            metodo,
+            total: formatearSoles(total),
+          })),
+        },
+        {
+          titulo: "Deudas activas",
+          columnas: [
+            { header: "Descripcion", key: "descripcion" },
+            { header: "Total", key: "total" },
+            { header: "Pagado", key: "pagado" },
+            { header: "Saldo", key: "saldo" },
+          ],
+          filas: analitica.deudas.slice(0, 20).map((d) => ({
+            descripcion: d.presupuesto.descripcion,
+            total: formatearSoles(d.presupuesto.monto),
+            pagado: formatearSoles(d.pagado),
+            saldo: formatearSoles(d.saldo),
+          })),
+        },
+      ],
     });
   };
 
   const maxIngresosDoctor = Math.max(...Object.values(analitica.ingresosPorDoctor), 1);
   const maxMetodos = Math.max(...Object.values(analitica.metodosPago), 1);
   const maxServicios = Math.max(...Object.values(analitica.citasPorServicio), 1);
-  const maxTendencia = Math.max(...analitica.tendenciaMensual.map((m) => m.total), 1);
+
+  const aniosDisponibles = useMemo(() => {
+    const anios = new Set([new Date().getFullYear()]);
+    pagos.forEach((p) => {
+      const f = new Date(p.created_at || p.createdAt);
+      if (!Number.isNaN(f.getTime())) anios.add(f.getFullYear());
+    });
+    return Array.from(anios).sort((a, b) => b - a);
+  }, [pagos]);
 
   if (cargando) {
     return (
@@ -245,7 +357,7 @@ export default function Reportes() {
             </div>
 
             <button
-              onClick={exportarExcel}
+              onClick={exportarExcelReporte}
               className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold px-4 py-2.5 rounded-xl border border-emerald-100"
             >
               Exportar Excel
@@ -287,26 +399,55 @@ export default function Reportes() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
-        <Section title="Tendencia de ingresos" className="xl:col-span-2">
-          <div className="flex h-72 items-end gap-3 px-5 pb-5 pt-6">
-            {analitica.tendenciaMensual.map((mes) => {
-              const altura = Math.max((mes.total / maxTendencia) * 100, mes.total > 0 ? 6 : 0);
-              return (
-                <div key={mes.value} className="flex h-full flex-1 flex-col justify-end gap-2">
-                  <div className="flex flex-1 items-end rounded-2xl bg-slate-100 px-2">
-                    <div
-                      className="w-full rounded-t-xl bg-gradient-to-t from-[#0d8f91] to-[#11B9BB]"
-                      style={{ height: `${altura}%` }}
-                    />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-[10px] font-black text-slate-600">{mes.label.split(" ")[0].slice(0, 3)}</p>
-                    <p className="text-[10px] text-slate-400">{formatearSoles(mes.total)}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+        <Section
+          title="Tendencia de ingresos"
+          className="xl:col-span-2"
+          action={
+            <div className="flex items-center gap-2">
+              <select
+                value={anioTendencia}
+                onChange={(e) => setAnioTendencia(Number(e.target.value))}
+                className="text-xs font-bold text-slate-600 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-100"
+              >
+                {aniosDisponibles.map((a) => (
+                  <option key={a} value={a}>{a}</option>
+                ))}
+              </select>
+              <div className="flex rounded-lg border border-slate-100 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setSemestreTendencia(1)}
+                  className={`px-3 py-1.5 text-[10px] font-bold transition ${
+                    semestreTendencia === 1
+                      ? "bg-[#11B9BB] text-white"
+                      : "bg-white text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  Ene–Jun
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSemestreTendencia(2)}
+                  className={`px-3 py-1.5 text-[10px] font-bold transition ${
+                    semestreTendencia === 2
+                      ? "bg-[#11B9BB] text-white"
+                      : "bg-white text-slate-500 hover:bg-slate-50"
+                  }`}
+                >
+                  Jul–Dic
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <GraficoTendenciaIngresos
+            datos={analitica.tendenciaMensual}
+            tituloSemestre={
+              semestreTendencia === 1
+                ? `Primer semestre ${anioTendencia} (Enero – Junio)`
+                : `Segundo semestre ${anioTendencia} (Julio – Diciembre)`
+            }
+          />
         </Section>
 
         <Section title="Estado de citas">
