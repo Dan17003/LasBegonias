@@ -20,6 +20,8 @@ import {
   parseFecha,
 } from "../utils/citas";
 
+import GraficoIngresosSemanales from "../components/GraficoIngresosSemanales";
+
 const iconos = {
   calendar: (
     <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3M5 11h14M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z" />
@@ -353,29 +355,11 @@ export default function Inicio({ setView }) {
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <Section title="Ingresos semanales" className="xl:col-span-2">
-            <div className="flex h-72 items-end gap-3 px-5 pb-5 pt-6">
-              {ingresosSemanales.map((dia) => {
-                const altura = Math.max((dia.monto / maxIngresoSemanal) * 100, 5);
-
-                return (
-                  <div key={dia.dia} className="flex h-full flex-1 flex-col justify-end gap-2">
-                    <div className="flex flex-1 items-end rounded-2xl bg-slate-100 px-2">
-                      <div
-                        className="w-full rounded-t-xl bg-gradient-to-t from-[#0d8f91] to-[#11B9BB] transition-all"
-                        style={{ height: `${altura}%` }}
-                        title={formatearMoneda(dia.monto)}
-                      />
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs font-black text-slate-700">{dia.dia}</p>
-                      <p className="text-[10px] text-slate-400">{formatearMoneda(dia.monto)}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </Section>
+         <Section title="Ingresos semanales" className="xl:col-span-2">
+  <GraficoIngresosSemanales
+    datos={ingresosSemanales}
+  />
+</Section>
 
           <Section title="Indicadores clave">
             <div className="space-y-4 p-5">
