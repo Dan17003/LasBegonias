@@ -10,9 +10,14 @@ import Notificacion from "./Notificacion.js";
 
 Paciente.belongsTo(Usuario, { foreignKey: "usuario_id" });
 Usuario.hasOne(Paciente, { foreignKey: "usuario_id" });
+Odontologo.belongsTo(Usuario, { foreignKey: "usuario_id" });
+Usuario.hasOne(Odontologo, { foreignKey: "usuario_id" });
 
 Cita.belongsTo(Paciente, { foreignKey: "paciente_id" });
 Paciente.hasMany(Cita, { foreignKey: "paciente_id" });
+
+Cita.belongsTo(Odontologo, { foreignKey: "odontologo_id" });
+Odontologo.hasMany(Cita, { foreignKey: "odontologo_id" });
 
 Presupuesto.belongsTo(Paciente, { foreignKey: "paciente_id" });
 Paciente.hasMany(Presupuesto, { foreignKey: "paciente_id" });

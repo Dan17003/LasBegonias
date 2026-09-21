@@ -3,6 +3,7 @@ import api from "../services/api";
 import { corregirEncoding } from "../utils/texto";
 
 export default function Agenda() {
+  const esOdontologo = localStorage.getItem("rol")?.toLowerCase() === "odontologo";
   const [view, setView] = useState("dia");
   const [selectedDoctor, setSelectedDoctor] = useState("Todos");
   const [showModal, setShowModal] = useState(false);
@@ -37,6 +38,7 @@ export default function Agenda() {
 
   const [formCita, setFormCita] = useState({
     paciente_id: "",
+    odontologo_id: "",
     fecha: "",
     hora_inicio: "",
     hora_fin: "",
@@ -50,6 +52,7 @@ export default function Agenda() {
 
   const formCitaVacio = () => ({
     paciente_id: "",
+    odontologo_id: doctoresDisponibles[0]?.id || "",
     fecha: "",
     hora_inicio: "",
     hora_fin: "",
@@ -76,6 +79,7 @@ export default function Agenda() {
         setFormCita((prev) => ({
           ...prev,
           doctor: prev.doctor || primerDisponible.nombre,
+          odontologo_id: prev.odontologo_id || primerDisponible.id,
         }));
       }
     } catch (error) {
@@ -218,6 +222,7 @@ export default function Agenda() {
     setEditandoCita(cita);
     setFormCita({
       paciente_id: String(cita.paciente_id),
+      odontologo_id: String(cita.odontologo_id || odontologos.find((doc) => doc.nombre === cita.doctor)?.id || ""),
       fecha: cita.fecha?.substring(0, 10) || "",
       hora_inicio: cita.hora_inicio || "",
       hora_fin: cita.hora_fin || "",
@@ -236,6 +241,7 @@ export default function Agenda() {
 
     const payload = {
       paciente_id: Number(formCita.paciente_id),
+      odontologo_id: formCita.odontologo_id ? Number(formCita.odontologo_id) : undefined,
       fecha: formCita.fecha,
       hora_inicio: formCita.hora_inicio,
       hora_fin: formCita.hora_fin,
@@ -508,6 +514,7 @@ export default function Agenda() {
 
                 <select
                   required
+                  disabled={esOdontologo}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
                   value={formCita.paciente_id}
                   onChange={(e) =>
@@ -711,11 +718,15 @@ export default function Agenda() {
                 <select
                   required
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none font-medium text-slate-700"
-                  value={formCita.doctor}
+                  value={String(formCita.odontologo_id || "")}
                   onChange={(e) =>
-                    setFormCita({
-                      ...formCita,
-                      doctor: e.target.value
+                    setFormCita((actual) => {
+                      const odontologo = doctoresDisponibles.find((doc) => String(doc.id) === e.target.value);
+                      return {
+                        ...actual,
+                        odontologo_id: e.target.value,
+                        doctor: odontologo?.nombre || "",
+                      };
                     })
                   }
                 >

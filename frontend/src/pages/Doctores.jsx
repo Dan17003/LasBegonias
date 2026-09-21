@@ -4,7 +4,7 @@ import { ESPECIALIDADES, TURNOS } from "../constants/odontologo";
 import { corregirEncoding } from "../utils/texto";
 
 const FORM_VACIO = {
-  nombre: "",
+  usuario_id: "",
   especialidad: ESPECIALIDADES[0],
   turno: TURNOS[0],
   disponible: true,
@@ -12,6 +12,7 @@ const FORM_VACIO = {
 
 export default function Doctores() {
   const [doctores, setDoctores] = useState([]);
+  const [usuariosOdontologos, setUsuariosOdontologos] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState(null);
   const [form, setForm] = useState(FORM_VACIO);
@@ -24,7 +25,13 @@ export default function Doctores() {
   const cargarDoctores = async () => {
     try {
       setCargando(true);
-      const res = await api.get("/odontologos");
+      const [res, resUsuarios] = await Promise.all([
+        api.get("/odontologos"),
+        api.get("/usuarios"),
+      ]);
+      setUsuariosOdontologos((resUsuarios.data || []).filter(
+        (usuario) => usuario.rol?.toLowerCase() === "odontologo"
+      ));
       setDoctores(
         (res.data || []).map((doc) => ({
           ...doc,
@@ -55,7 +62,7 @@ export default function Doctores() {
   const abrirEditar = (doc) => {
     setEditando(doc);
     setForm({
-      nombre: doc.nombre,
+      usuario_id: doc.usuario_id || "",
       especialidad: corregirEncoding(doc.especialidad),
       turno: corregirEncoding(doc.turno),
       disponible: doc.disponible !== false,
@@ -75,8 +82,8 @@ export default function Doctores() {
     e.preventDefault();
     setError("");
 
-    if (!form.nombre) {
-      setError("El nombre es obligatorio.");
+    if (!form.usuario_id) {
+      setError("Debes seleccionar primero un usuario con rol odontólogo.");
       return;
     }
 
@@ -244,6 +251,11 @@ export default function Doctores() {
                       {doc.disponible !== false ? "Activo" : "Ausente"}
                     </span>
                   </div>
+                  <p className={`mb-3 text-[10px] font-bold ${doc.usuario_id ? "text-emerald-600" : "text-amber-600"}`}>
+                    {doc.usuario_id
+                      ? `✓ Acceso vinculado: ${doc.usuario?.email || "cuenta activa"}`
+                      : "⚠ Sin usuario vinculado"}
+                  </p>
 
                   <div className="bg-slate-50/60 rounded-xl p-3 border border-slate-100 mb-5">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -307,16 +319,26 @@ export default function Doctores() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">
-                  Nombre Completo (Con Prefijo)
+                  Usuario odontólogo
                 </label>
-                <input
-                  type="text"
+                <select
                   required
-                  placeholder="Ej. Dr. Andrés Soto"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none text-slate-800"
-                  value={form.nombre}
-                  onChange={(e) => setForm({ ...form, nombre: e.target.value })}
-                />
+                  value={form.usuario_id}
+                  onChange={(e) => setForm({ ...form, usuario_id: Number(e.target.value) })}
+                >
+                  <option value="">Seleccionar usuario</option>
+                  {usuariosOdontologos
+                    .filter((usuario) => !doctores.some((doc) => doc.usuario_id === usuario.id && doc.id !== editando?.id))
+                    .map((usuario) => (
+                    <option key={usuario.id} value={usuario.id}>
+                      {usuario.nombre} — {usuario.email}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  La cuenta se crea primero en Usuarios con rol Odontólogo.
+                </p>
               </div>
 
               <div>

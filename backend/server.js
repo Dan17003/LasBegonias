@@ -13,7 +13,7 @@ const PORT = 3000;
 
 Promise.all([
   Usuario.sync({ alter: true }),
-  Odontologo.sync(),
+  Odontologo.sync({ alter: true }),
   Paciente.sync({ alter: true }),
   Cita.sync({ alter: true }),
   Notificacion.sync({ alter: true }),

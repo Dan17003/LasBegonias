@@ -4,6 +4,10 @@ import sequelize from "../config/db.js";
 const Cita = sequelize.define(
   "Cita",
   {
+    odontologo_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     fecha: {
       type: DataTypes.DATEONLY,
       allowNull: false,

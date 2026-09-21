@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import { Op } from "sequelize";
-import { Usuario, sequelize } from "../models/index.js";
+import { Odontologo, Usuario, sequelize } from "../models/index.js";
 
 const ROLES_STAFF = ["admin", "recepcionista", "odontologo"];
 
@@ -16,7 +16,7 @@ const whereStaff = {
 const PERMISOS_POR_ROL = {
   admin: ["inicio", "usuarios", "doctores", "reportes"],
   recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
-  odontologo: ["inicio", "agenda"],
+  odontologo: ["inicio", "agenda", "perfil"],
 };
 
 const sinPassword = (usuario) => {
@@ -59,13 +59,17 @@ export const crearUsuario = async (req, res) => {
     const hash = await bcrypt.hash(password, 10);
     const permisosFinales = permisos?.length ? permisos : PERMISOS_POR_ROL[rolNormalizado];
 
-    const usuario = await Usuario.create({
-      nombre: nombre || email.split("@")[0],
-      email,
-      password: hash,
-      rol: rolNormalizado,
-      permisos: permisosFinales,
-      activo: activo !== false,
+    const usuario = await sequelize.transaction(async (transaction) => {
+      const creado = await Usuario.create({
+        nombre: nombre || email.split("@")[0],
+        email,
+        password: hash,
+        rol: rolNormalizado,
+        permisos: permisosFinales,
+        activo: activo !== false,
+      }, { transaction });
+
+      return creado;
     });
 
     res.status(201).json({
@@ -101,6 +105,10 @@ export const actualizarUsuario = async (req, res) => {
       if (!ROLES_STAFF.includes(rolNormalizado)) {
         return res.status(400).json({ error: "Rol no válido" });
       }
+      const perfil = await Odontologo.findOne({ where: { usuario_id: usuario.id } });
+      if (perfil && rolNormalizado !== "odontologo") {
+        return res.status(400).json({ error: "Desvincula primero el perfil odontológico antes de cambiar el rol." });
+      }
       datos.rol = rolNormalizado;
     }
     if (permisos !== undefined) datos.permisos = permisos;
@@ -125,6 +133,10 @@ export const eliminarUsuario = async (req, res) => {
     if (req.user?.id === usuario.id) {
       return res.status(400).json({ error: "No puedes eliminar tu propia cuenta" });
     }
+    const perfil = await Odontologo.findOne({ where: { usuario_id: usuario.id } });
+    if (perfil) {
+      return res.status(400).json({ error: "No puedes eliminar un usuario con perfil odontológico vinculado." });
+    }
 
     await usuario.destroy();
     res.json({ message: "Usuario eliminado" });
@@ -139,6 +151,7 @@ export const obtenerPermisosDisponibles = async (_req, res) => {
       { id: "inicio", label: "Inicio" },
       { id: "pacientes", label: "Pacientes" },
       { id: "agenda", label: "Agenda" },
+      { id: "perfil", label: "Mi perfil" },
       { id: "finanzas", label: "Finanzas" },
       { id: "doctores", label: "Doctores" },
       { id: "usuarios", label: "Usuarios" },

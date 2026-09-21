@@ -1,7 +1,7 @@
 export const PERMISOS_POR_ROL = {
   admin: ["inicio", "usuarios", "doctores", "reportes"],
   recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
-  odontologo: ["inicio", "agenda"],
+  odontologo: ["inicio", "agenda", "perfil"],
 };
 
 export const normalizarRol = (rol) => (rol || "").toLowerCase();

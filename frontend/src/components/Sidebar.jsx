@@ -58,6 +58,15 @@ const menuItems = [
     ),
   },
   {
+    id: "perfil",
+    label: "Mi perfil",
+    icon: (
+      <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19a6 6 0 0 0-6 0m3-8a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0" />
+      </svg>
+    ),
+  },
+  {
     id: "finanzas",
     label: "Finanzas",
     icon: (

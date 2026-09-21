@@ -4,6 +4,11 @@ import sequelize from "../config/db.js";
 const Odontologo = sequelize.define(
   "Odontologo",
   {
+    usuario_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      unique: true,
+    },
     nombre: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -19,6 +24,18 @@ const Odontologo = sequelize.define(
     disponible: {
       type: DataTypes.BOOLEAN,
       defaultValue: true,
+    },
+    telefono: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    colegiatura: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    descripcion: {
+      type: DataTypes.TEXT,
+      allowNull: true,
     },
   },
   {

@@ -27,7 +27,7 @@ const FORM_VACIO = {
 const PERMISOS_DEFAULT = {
   admin: ["inicio", "usuarios", "doctores", "reportes"],
   recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
-  odontologo: ["inicio", "agenda"],
+  odontologo: ["inicio", "agenda", "perfil"],
 };
 
 export default function Usuarios() {

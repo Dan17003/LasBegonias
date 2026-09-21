@@ -7,7 +7,7 @@ const JWT_SECRET = "secreto";
 const PERMISOS_POR_ROL = {
   admin: ["inicio", "usuarios", "doctores", "reportes"],
   recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
-  odontologo: ["inicio", "agenda"],
+  odontologo: ["inicio", "agenda", "perfil"],
 }; 
 
 // ==========================
@@ -37,7 +37,10 @@ export const login = async (req, res) => {
     const permisosPersonalizados = Array.isArray(user.permisos) && user.permisos.length > 0
       ? user.permisos
       : null;
-    const permisos = permisosPersonalizados || PERMISOS_POR_ROL[rolNormalizado] || [];
+    const permisosBase = permisosPersonalizados || PERMISOS_POR_ROL[rolNormalizado] || [];
+    const permisos = rolNormalizado === "odontologo"
+      ? [...new Set([...permisosBase, "perfil"])]
+      : permisosBase;
 
     const token = jwt.sign(
       { id: user.id, rol: user.rol },

@@ -21,3 +21,11 @@ export const requireAdmin = (req, res, next) => {
   }
   next();
 };
+
+export const requireStaff = (req, res, next) => {
+  const rol = req.user?.rol?.toLowerCase();
+  if (!["admin", "recepcionista", "odontologo"].includes(rol)) {
+    return res.status(403).json({ error: "Acceso denegado." });
+  }
+  next();
+};
