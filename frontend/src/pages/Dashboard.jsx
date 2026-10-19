@@ -9,9 +9,14 @@ import Usuarios from "./Usuarios";
 import Doctores from "./Doctores";
 import Reportes from "./Reportes";
 import Notificaciones from "../components/Notificaciones";
+import Perfil from "./Perfil";
+import MisPacientes from "./MisPacientes";
+import InicioOdontologo from "./InicioOdontologo";
+import AsistenteOdontologo from "./AsistenteOdontologo";
 
 export default function Dashboard({ setIsLogged }) {
     const [view, setView] = useState("inicio");
+    const esOdontologo = localStorage.getItem("rol")?.toLowerCase() === "odontologo";
 
     return (
         <div className="flex h-screen bg-slate-100 text-[17px] text-slate-800">
@@ -23,7 +28,7 @@ export default function Dashboard({ setIsLogged }) {
                 <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-white/70 px-8 py-3 flex justify-end shadow-sm">
                     <Notificaciones />
                 </div>
-                {view === "inicio" && <Inicio setView={setView} />}
+                {view === "inicio" && (esOdontologo ? <InicioOdontologo setView={setView} /> : <Inicio setView={setView} />)}
                 {view === "pacientes" && <Pacientes />}
                 {view === "agenda" && <Agenda />}
                 {view === "finanzas" && <Finanzas />}
@@ -31,6 +36,9 @@ export default function Dashboard({ setIsLogged }) {
                 {view === "usuarios" && <Usuarios />}
                 {view === "doctores" && <Doctores />}
                 {view === "reportes" && <Reportes />}
+                {view === "perfil" && <Perfil />}
+                {view === "mis-pacientes" && <MisPacientes />}
+                {view === "asistente-ia" && esOdontologo && <AsistenteOdontologo />}
             </div>
 
         </div>

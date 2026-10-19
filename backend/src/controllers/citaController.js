@@ -1,4 +1,5 @@
-import { Cita, Paciente } from "../models/index.js";
+import { Op } from "sequelize";
+import { Atencion, Cita, Odontologo, Paciente, sequelize } from "../models/index.js";
 import {
   crearConfirmacionCita,
   crearNotificacionCita,
@@ -24,9 +25,52 @@ export const crearCita = async (req, res) => {
       });
     }
 
-    const cita = await Cita.create({
-      ...req.body,
-      token_respuesta: generarTokenRespuesta(),
+    const datos = { ...req.body };
+    delete datos.id;
+    const rol = req.user?.rol?.toLowerCase();
+    let odontologo;
+    if (rol === "odontologo") {
+      odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
+      if (!odontologo) return res.status(400).json({ error: "El usuario no tiene perfil odontológico." });
+      datos.odontologo_id = odontologo.id;
+      datos.doctor = odontologo.nombre;
+    } else if (datos.odontologo_id) {
+      odontologo = await Odontologo.findByPk(datos.odontologo_id);
+      if (!odontologo) return res.status(400).json({ error: "Odontólogo no encontrado." });
+      datos.doctor = odontologo.nombre;
+    } else if (datos.doctor) {
+      odontologo = await Odontologo.findOne({ where: { nombre: datos.doctor } });
+      if (odontologo) datos.odontologo_id = odontologo.id;
+    }
+
+    let atencionOrigen = null;
+    if (req.body.atencion_origen_id !== undefined && req.body.atencion_origen_id !== null && req.body.atencion_origen_id !== "") {
+      if (!/^\d+$/.test(String(req.body.atencion_origen_id))) {
+        return res.status(400).json({ error: "La atención de seguimiento no es válida." });
+      }
+      atencionOrigen = await Atencion.findOne({
+        where: {
+          id: Number(req.body.atencion_origen_id),
+          paciente_id: paciente.id,
+          ...(odontologo ? { odontologo_id: odontologo.id } : {}),
+        },
+      });
+      if (!odontologo) {
+        return res.status(400).json({ error: "Selecciona al odontólogo responsable de la atención de seguimiento." });
+      }
+      if (!atencionOrigen) return res.status(400).json({ error: "La atención de seguimiento no pertenece a este paciente u odontólogo." });
+      if (atencionOrigen.proxima_cita_id) {
+        return res.status(409).json({ error: "Esta atención ya tiene una cita de seguimiento vinculada." });
+      }
+    }
+    const cita = await sequelize.transaction(async (transaction) => {
+      const created = await Cita.create({
+        ...datos,
+        atencion_origen_id: atencionOrigen?.id || null,
+        token_respuesta: generarTokenRespuesta(),
+      }, { transaction });
+      if (atencionOrigen) await atencionOrigen.update({ proxima_cita_id: created.id }, { transaction });
+      return created;
     });
     const citaConPaciente = await Cita.findByPk(cita.id, {
       include: [{ model: Paciente }],
@@ -40,13 +84,26 @@ export const crearCita = async (req, res) => {
 
     res.status(201).json(citaConPaciente || cita);
   } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
+      return res.status(409).json({ error: "Esta atención ya tiene una cita de seguimiento vinculada." });
+    }
     res.status(400).json({ error: error.message });
   }
 };
 
 export const listarCitas = async (req, res) => {
   try {
+    const where = {};
+    if (req.user?.rol?.toLowerCase() === "odontologo") {
+      const odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
+      if (!odontologo) return res.json([]);
+      where[Op.or] = [
+        { odontologo_id: odontologo.id },
+        { doctor: odontologo.nombre },
+      ];
+    }
     const citas = await Cita.findAll({
+      where,
       include: [{ model: Paciente }],
       order: [["fecha", "ASC"], ["hora_inicio", "ASC"]],
     });
@@ -62,7 +119,26 @@ export const actualizarCita = async (req, res) => {
     if (!cita) {
       return res.status(404).json({ error: "Cita no encontrada" });
     }
-    await cita.update(req.body);
+    if (req.user?.rol?.toLowerCase() === "odontologo") {
+      const odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
+      if (!odontologo || (cita.odontologo_id !== odontologo.id && cita.doctor !== odontologo.nombre)) {
+        return res.status(403).json({ error: "No puedes modificar esta cita." });
+      }
+    }
+    const datos = { ...req.body };
+    delete datos.id;
+    delete datos.atencion_origen_id;
+    if (req.user?.rol?.toLowerCase() === "odontologo") {
+      const odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
+      datos.odontologo_id = odontologo.id;
+      datos.doctor = odontologo.nombre;
+    }
+    if (datos.odontologo_id) {
+      const odontologo = await Odontologo.findByPk(datos.odontologo_id);
+      if (!odontologo) return res.status(400).json({ error: "Odontólogo no encontrado." });
+      datos.doctor = odontologo.nombre;
+    }
+    await cita.update(datos);
     const citaConPaciente = await Cita.findByPk(cita.id, {
       include: [{ model: Paciente }],
     });
@@ -82,6 +158,12 @@ export const eliminarCita = async (req, res) => {
     const cita = await Cita.findByPk(req.params.id);
     if (!cita) {
       return res.status(404).json({ error: "Cita no encontrada" });
+    }
+    if (req.user?.rol?.toLowerCase() === "odontologo") {
+      const odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
+      if (!odontologo || (cita.odontologo_id !== odontologo.id && cita.doctor !== odontologo.nombre)) {
+        return res.status(403).json({ error: "No puedes eliminar esta cita." });
+      }
     }
     await cita.destroy();
     res.json({ message: "Cita eliminada" });

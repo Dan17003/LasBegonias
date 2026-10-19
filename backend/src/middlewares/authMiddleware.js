@@ -1,13 +1,22 @@
 import jwt from "jsonwebtoken";
+import { obtenerJwtSecret } from "../config/security.js";
 
 export const auth = (req, res, next) => {
   const header = req.headers.authorization;
 
   if (!header) return res.status(401).json({ error: "No autorizado" });
 
+  let secret;
+  try {
+    secret = obtenerJwtSecret();
+  } catch {
+    console.error("JWT authentication is not configured", { status: 503 });
+    return res.status(503).json({ error: "La autenticación no está disponible en este momento." });
+  }
+
   try {
     const token = header.startsWith("Bearer ") ? header.slice(7) : header;
-    const decoded = jwt.verify(token, "secreto");
+    const decoded = jwt.verify(token, secret, { algorithms: ["HS256"] });
     req.user = decoded;
     next();
   } catch {
@@ -18,6 +27,29 @@ export const auth = (req, res, next) => {
 export const requireAdmin = (req, res, next) => {
   if (req.user?.rol?.toLowerCase() !== "admin") {
     return res.status(403).json({ error: "Acceso denegado. Se requiere rol administrador." });
+  }
+  next();
+};
+
+export const requireStaff = (req, res, next) => {
+  const rol = req.user?.rol?.toLowerCase();
+  if (!["admin", "recepcionista", "odontologo"].includes(rol)) {
+    return res.status(403).json({ error: "Acceso denegado." });
+  }
+  next();
+};
+
+export const requireReceptionOrAdmin = (req, res, next) => {
+  const rol = req.user?.rol?.toLowerCase();
+  if (!["admin", "recepcionista"].includes(rol)) {
+    return res.status(403).json({ error: "Acceso denegado." });
+  }
+  next();
+};
+
+export const requireOdontologist = (req, res, next) => {
+  if (req.user?.rol?.toLowerCase() !== "odontologo") {
+    return res.status(403).json({ error: "Acceso denegado. Se requiere rol odontólogo." });
   }
   next();
 };

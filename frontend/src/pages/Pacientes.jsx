@@ -263,13 +263,13 @@ export default function Pacientes() {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="bg-slate-50/70 border-b border-slate-100 text-xs font-bold text-slate-400 uppercase tracking-wider">
-                <th className="py-4 px-6">Paciente</th>
-                <th className="py-4 px-6">Contacto</th>
-                <th className="py-4 px-6">Última cita</th>
-                <th className="py-4 px-6">Próxima cita</th>
-                <th className="py-4 px-6">Deuda</th>
-                <th className="py-4 px-6">Acciones</th>
+              <tr className="bg-[#087f81] text-sm font-semibold text-white">
+                <th scope="col" className="py-4 px-6">Paciente</th>
+                <th scope="col" className="py-4 px-6">Contacto</th>
+                <th scope="col" className="py-4 px-6">Última cita</th>
+                <th scope="col" className="py-4 px-6">Próxima cita</th>
+                <th scope="col" className="py-4 px-6">Deuda</th>
+                <th scope="col" className="py-4 px-6">Acciones</th>
               </tr>
             </thead>
 

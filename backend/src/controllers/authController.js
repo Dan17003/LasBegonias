@@ -1,13 +1,12 @@
 import { Usuario, Paciente } from "../models/index.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-
-const JWT_SECRET = "secreto";
+import { obtenerJwtSecret } from "../config/security.js";
 
 const PERMISOS_POR_ROL = {
   admin: ["inicio", "usuarios", "doctores", "reportes"],
   recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
-  odontologo: ["inicio", "agenda"],
+  odontologo: ["inicio", "agenda", "perfil", "mis-pacientes"],
 }; 
 
 // ==========================
@@ -37,12 +36,15 @@ export const login = async (req, res) => {
     const permisosPersonalizados = Array.isArray(user.permisos) && user.permisos.length > 0
       ? user.permisos
       : null;
-    const permisos = permisosPersonalizados || PERMISOS_POR_ROL[rolNormalizado] || [];
+    const permisosBase = permisosPersonalizados || PERMISOS_POR_ROL[rolNormalizado] || [];
+    const permisos = rolNormalizado === "odontologo"
+      ? [...new Set([...permisosBase, "perfil"])]
+      : permisosBase;
 
     const token = jwt.sign(
       { id: user.id, rol: user.rol },
-      JWT_SECRET,
-      { expiresIn: "1d" }
+      obtenerJwtSecret(),
+      { expiresIn: "1d", algorithm: "HS256" }
     );
 
     res.json({
@@ -58,8 +60,8 @@ export const login = async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: error.message });
+    console.error("Login failed");
+    res.status(500).json({ error: "No se pudo iniciar sesión en este momento." });
   }
 };
 
