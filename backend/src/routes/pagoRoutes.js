@@ -7,8 +7,11 @@ import {
   eliminarPago,
   obtenerPagosPorPaciente,
 } from "../controllers/pagoController.js";
+import { auth, requireReceptionOrAdmin } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
+
+router.use(auth, requireReceptionOrAdmin);
 
 router.post("/", crearPago);
 router.get("/", listarPagos);

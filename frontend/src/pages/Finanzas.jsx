@@ -8,14 +8,17 @@ import {
   formatearMoneda,
 } from "../utils/finanzas";
 import { exportarExcel, descargarPDF, imprimirHTML } from "../utils/exportar";
+import FinanzasServicios from "../components/FinanzasServicios";
+import PresupuestoManual from "../components/PresupuestoManual";
 
 export default function Finanzas() {
-    const [tab, setTab] = useState("presupuestos");
+    const [tab, setTab] = useState("servicios");
     const [pacientes, setPacientes] = useState([]);
     const [presupuestos, setPresupuestos] = useState([]);
     const [pagos, setPagos] = useState([]);
     const [odontologos, setOdontologos] = useState([]);
     const [showPresupuestoModal, setShowPresupuestoModal] = useState(false);
+    const [showPresupuestoManual, setShowPresupuestoManual] = useState(false);
     const [showPagoModal, setShowPagoModal] = useState(false);
     const [editandoPresupuesto, setEditandoPresupuesto] = useState(null);
     const [editandoPago, setEditandoPago] = useState(null);
@@ -41,37 +44,6 @@ export default function Finanzas() {
         doctor: "",
     });
 
-    useEffect(() => {
-        obtenerPacientes();
-        obtenerPresupuestos();
-        obtenerPagos();
-        obtenerOdontologos();
-    }, []);
-
-    const obtenerOdontologos = async () => {
-        try {
-            const res = await api.get("/odontologos");
-            setOdontologos(
-                (res.data || []).map((doc) => ({
-                    ...doc,
-                    nombre: corregirEncoding(doc.nombre),
-                    turno: corregirEncoding(doc.turno),
-                }))
-            );
-        } catch (error) {
-            console.error(error);
-        }
-    };
-
-    const obtenerPacientes = async () => {
-        try {
-            const res = await api.get("/pacientes");
-            setPacientes(res.data);
-        } catch (error) {
-            console.error(error);
-        }
-    };
-
     const obtenerPresupuestos = async () => {
         try {
             const res = await api.get("/presupuestos");
@@ -91,6 +63,55 @@ export default function Finanzas() {
             setPagos([]);
         }
     };
+
+    useEffect(() => {
+        let activo = true;
+        const cargarDatosIniciales = async () => {
+            const resultados = await Promise.allSettled([
+                api.get("/pacientes"),
+                api.get("/presupuestos"),
+                api.get("/pagos"),
+                api.get("/odontologos"),
+            ]);
+
+            if (!activo) return;
+
+            const [pacientesResult, presupuestosResult, pagosResult, odontologosResult] = resultados;
+            if (pacientesResult.status === "fulfilled") {
+                setPacientes(pacientesResult.value.data);
+            } else {
+                console.error(pacientesResult.reason);
+            }
+            if (presupuestosResult.status === "fulfilled") {
+                setPresupuestos(presupuestosResult.value.data || []);
+            } else {
+                console.error("Presupuestos no disponibles:", presupuestosResult.reason);
+                setPresupuestos([]);
+            }
+            if (pagosResult.status === "fulfilled") {
+                setPagos(pagosResult.value.data || []);
+            } else {
+                console.error("Pagos no disponibles:", pagosResult.reason);
+                setPagos([]);
+            }
+            if (odontologosResult.status === "fulfilled") {
+                setOdontologos(
+                    (odontologosResult.value.data || []).map((doc) => ({
+                        ...doc,
+                        nombre: corregirEncoding(doc.nombre),
+                        turno: corregirEncoding(doc.turno),
+                    }))
+                );
+            } else {
+                console.error(odontologosResult.reason);
+            }
+        };
+
+        cargarDatosIniciales();
+        return () => {
+            activo = false;
+        };
+    }, []);
 
     const formPresupuestoVacio = () => ({
         paciente_id: "",
@@ -123,9 +144,7 @@ export default function Finanzas() {
     };
 
     const abrirCrearPresupuesto = () => {
-        setEditandoPresupuesto(null);
-        setFormPresupuesto(formPresupuestoVacio());
-        setShowPresupuestoModal(true);
+        setShowPresupuestoManual(true);
     };
 
     const abrirEditarPresupuesto = (presupuesto) => {
@@ -147,6 +166,44 @@ export default function Finanzas() {
         return item ? item.saldo : 0;
     };
 
+    const abrirPagoDesdePresupuesto = (
+        presupuesto,
+        saldo = saldoPresupuesto(presupuesto.id),
+        descripcion = `Pago de: ${presupuesto.descripcion}`,
+    ) => {
+        if (saldo <= 0) {
+            alert("Este presupuesto ya está pagado.");
+            return;
+        }
+        setEditandoPago(null);
+        setFormPago({
+            paciente_id: String(getPacienteId(presupuesto)),
+            presupuesto_id: String(presupuesto.id),
+            monto: String(saldo),
+            tipo_pago: saldo < toNumber(presupuesto.monto) ? "pago_parcial" : "pago_total",
+            metodo: "efectivo",
+            descripcion,
+            doctor: presupuesto.doctor || "",
+        });
+        setTab("pagos");
+        setShowPagoModal(true);
+    };
+
+    const continuarAPago = (presupuesto) => {
+        if (!presupuesto?.id) {
+            alert("El presupuesto se creó, pero no se pudo abrir el pago. Puedes encontrarlo en Presupuestos.");
+            return;
+        }
+        const presupuestosActualizados = [
+            presupuesto,
+            ...presupuestos.filter((item) => Number(item.id) !== Number(presupuesto.id)),
+        ];
+        setPresupuestos(presupuestosActualizados);
+        const saldo = calcularDeudas(presupuestosActualizados, pagos)
+            .find((deuda) => Number(deuda.presupuesto.id) === Number(presupuesto.id))?.saldo || 0;
+        abrirPagoDesdePresupuesto(presupuesto, saldo);
+    };
+
     const abrirCrearPago = () => {
         setEditandoPago(null);
         setFormPago(formPagoVacio());
@@ -154,17 +211,7 @@ export default function Finanzas() {
     };
 
     const abrirPagoDesdeDeuda = ({ presupuesto }) => {
-        setEditandoPago(null);
-        setFormPago({
-            paciente_id: String(getPacienteId(presupuesto)),
-            presupuesto_id: String(presupuesto.id),
-            monto: String(saldoPresupuesto(presupuesto.id)),
-            tipo_pago: "pago_parcial",
-            metodo: "efectivo",
-            descripcion: `Abono a: ${presupuesto.descripcion}`,
-            doctor: presupuesto.doctor || "",
-        });
-        setShowPagoModal(true);
+        abrirPagoDesdePresupuesto(presupuesto, saldoPresupuesto(presupuesto.id), `Abono a: ${presupuesto.descripcion}`);
     };
 
     const abrirEditarPago = (pago) => {
@@ -218,7 +265,7 @@ export default function Finanzas() {
 
     const eliminarPresupuesto = async (presupuesto) => {
         const confirmar = window.confirm(
-            `¿Eliminar el presupuesto "${presupuesto.descripcion}"? Los pagos vinculados quedarán sin presupuesto.`
+            `¿Eliminar el presupuesto "${presupuesto.descripcion}"? Los pagos vinculados quedarán sin presupuesto y las solicitudes clínicas asociadas volverán a quedar pendientes.`
         );
         if (!confirmar) return;
 
@@ -297,7 +344,7 @@ export default function Finanzas() {
                     <p><strong>Paciente:</strong> ${paciente?.nombres || ""} ${paciente?.apellidos || ""}</p>
                     <p><strong>Odontologo:</strong> ${presupuesto.doctor || "—"}</p>
                     <p><strong>Descripcion:</strong> ${presupuesto.descripcion}</p>
-                    <p><strong>Vigencia:</strong> ${presupuesto.fecha_vigencia}</p>
+                    <p><strong>Vigencia:</strong> ${presupuesto.fecha_vigencia || "Sin vencimiento"}</p>
                     <p style="font-size:20px;color:#11B9BB;margin-top:16px;"><strong>Monto total:</strong> ${formatearMoneda(presupuesto.monto)}</p>
                     <p><strong>Pagado:</strong> ${formatearMoneda(pagado)}</p>
                     <p><strong>Saldo pendiente:</strong> ${formatearMoneda(saldo)}</p>
@@ -331,7 +378,10 @@ export default function Finanzas() {
             const porcentajePagado = montoTotal
                 ? Math.min(Math.round((deuda.pagado / montoTotal) * 100), 100)
                 : 0;
-            const vencida = new Date(deuda.presupuesto.fecha_vigencia) < new Date();
+            const vencida = Boolean(
+                deuda.presupuesto.fecha_vigencia &&
+                new Date(deuda.presupuesto.fecha_vigencia) < new Date()
+            );
 
             return { ...deuda, paciente, nombreCompleto, porcentajePagado, vencida };
         });
@@ -349,6 +399,9 @@ export default function Finanzas() {
             if (ordenDeuda === "saldo_desc") return b.saldo - a.saldo;
             if (ordenDeuda === "saldo_asc") return a.saldo - b.saldo;
             if (ordenDeuda === "vigencia") {
+                if (!a.presupuesto.fecha_vigencia && !b.presupuesto.fecha_vigencia) return b.saldo - a.saldo;
+                if (!a.presupuesto.fecha_vigencia) return 1;
+                if (!b.presupuesto.fecha_vigencia) return -1;
                 return new Date(a.presupuesto.fecha_vigencia) - new Date(b.presupuesto.fecha_vigencia);
             }
             return b.saldo - a.saldo;
@@ -365,7 +418,7 @@ export default function Finanzas() {
                     Paciente: d.nombreCompleto,
                     Descripcion: d.presupuesto.descripcion,
                     Odontologo: d.presupuesto.doctor,
-                    Vigencia: d.presupuesto.fecha_vigencia,
+                    Vigencia: d.presupuesto.fecha_vigencia || "Sin vencimiento",
                     "Monto total": toNumber(d.presupuesto.monto),
                     Pagado: d.pagado,
                     "Saldo pendiente": d.saldo,
@@ -417,6 +470,7 @@ export default function Finanzas() {
         );
 
     const tabs = [
+        { id: "servicios", label: "Solicitudes clínicas" },
         { id: "presupuestos", label: "Presupuestos" },
         { id: "pagos", label: "Pagos" },
         { id: "deudas", label: "Deudas" },
@@ -484,14 +538,16 @@ export default function Finanzas() {
 
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
-                                <thead className="bg-slate-50 border-b border-slate-200">
+                                <thead className="bg-[#087f81] text-white">
                                     <tr>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Paciente</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Descripción</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Monto</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Odontólogo</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Vigencia</th>
-                                        <th className="px-4 py-3 text-center font-semibold text-slate-700">Acciones</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Paciente</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Descripción</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Origen</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Cita</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Monto</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Odontólogo</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Vigencia</th>
+                                        <th className="px-4 py-3 text-center font-semibold">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -499,9 +555,15 @@ export default function Finanzas() {
                                         <tr key={p.id} className="hover:bg-slate-50">
                                             <td className="px-4 py-3">{pacientes.find(pc => pc.id === p.paciente_id)?.nombres || "N/A"}</td>
                                             <td className="px-4 py-3">{p.descripcion}</td>
+                                            <td className="px-4 py-3">
+                                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${p.origen === "odontologia" ? "bg-cyan-50 text-cyan-800" : "bg-slate-100 text-slate-600"}`}>
+                                                    {p.origen === "odontologia" ? "Solicitud odontología" : "Recepción"}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-xs text-slate-500">{p.Citum ? `${p.Citum.fecha} ${p.Citum.hora_inicio?.slice(0, 5)}` : "No asociada"}</td>
                                             <td className="px-4 py-3 font-semibold text-[#11B9BB]">{formatearMoneda(p.monto)}</td>
                                             <td className="px-4 py-3 text-slate-600">{p.doctor}</td>
-                                            <td className="px-4 py-3 text-slate-500">{p.fecha_vigencia}</td>
+                                            <td className="px-4 py-3 text-slate-500">{p.fecha_vigencia || "Sin vencimiento"}</td>
                                             <td className="px-4 py-3">
                                                 <div className="flex flex-wrap gap-1.5 justify-center">
                                                     <button
@@ -528,6 +590,15 @@ export default function Finanzas() {
                                                     >
                                                         Enviar
                                                     </button>
+                                                    {saldoPresupuesto(p.id) > 0 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => abrirPagoDesdePresupuesto(p)}
+                                                            className="px-3 py-1 rounded-lg bg-[#11B9BB] text-xs font-semibold text-white hover:bg-[#0ea5a7]"
+                                                        >
+                                                            Registrar pago
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -536,6 +607,10 @@ export default function Finanzas() {
                             </table>
                         </div>
                     </div>
+                )}
+
+                {tab === "servicios" && (
+                    <FinanzasServicios onPresupuestoCreado={continuarAPago} />
                 )}
 
                 {tab === "pagos" && (
@@ -555,16 +630,16 @@ export default function Finanzas() {
 
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
-                                <thead className="bg-slate-50 border-b border-slate-200">
+                                <thead className="bg-[#087f81] text-white">
                                     <tr>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Paciente</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Monto</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Tipo</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Método</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Presupuesto</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Odontólogo</th>
-                                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Fecha</th>
-                                        <th className="px-4 py-3 text-center font-semibold text-slate-700">Acciones</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Paciente</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Monto</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Tipo</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Método</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Presupuesto</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Odontólogo</th>
+                                        <th className="px-4 py-3 text-left font-semibold">Fecha</th>
+                                        <th className="px-4 py-3 text-center font-semibold">Acciones</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-slate-100">
@@ -686,7 +761,7 @@ export default function Finanzas() {
                                             </div>
                                             <p className="text-sm text-slate-500 mt-0.5">{deuda.presupuesto.descripcion}</p>
                                             <p className="text-xs text-slate-400 mt-1">
-                                                {deuda.presupuesto.doctor} · Vigencia: {deuda.presupuesto.fecha_vigencia}
+                                                {deuda.presupuesto.doctor} · {deuda.presupuesto.fecha_vigencia ? `Vigencia: ${deuda.presupuesto.fecha_vigencia}` : "Sin vencimiento"}
                                             </p>
                                         </div>
                                         <div className="text-right shrink-0">
@@ -740,6 +815,13 @@ export default function Finanzas() {
 
                 
             </div>
+
+            {showPresupuestoManual && (
+                <PresupuestoManual
+                    onClose={() => setShowPresupuestoManual(false)}
+                    onSaved={continuarAPago}
+                />
+            )}
 
             {showPresupuestoModal && (
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
@@ -867,8 +949,13 @@ export default function Finanzas() {
                 <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs flex justify-center items-center z-50 p-4">
                     <form onSubmit={guardarPago} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-xl border border-slate-100">
                         <h3 className="text-base font-bold text-slate-800 mb-4">
-                            {editandoPago ? "Editar Pago" : "Registrar Pago"}
+                            {editandoPago ? "Editar Pago" : formPago.presupuesto_id ? "Registrar pago del presupuesto" : "Registrar Pago"}
                         </h3>
+                        {formPago.presupuesto_id && (
+                            <p className="mb-4 rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-900">
+                                {presupuestos.find((item) => Number(item.id) === Number(formPago.presupuesto_id))?.descripcion || "Presupuesto seleccionado"} · saldo pendiente preseleccionado: {formatearMoneda(formPago.monto)}.
+                            </p>
+                        )}
 
                         <div className="space-y-4">
                             <div>

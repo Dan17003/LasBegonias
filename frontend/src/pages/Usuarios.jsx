@@ -27,7 +27,7 @@ const FORM_VACIO = {
 const PERMISOS_DEFAULT = {
   admin: ["inicio", "usuarios", "doctores", "reportes"],
   recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
-  odontologo: ["inicio", "agenda", "perfil"],
+  odontologo: ["inicio", "agenda", "perfil", "mis-pacientes"],
 };
 
 export default function Usuarios() {
@@ -119,7 +119,7 @@ export default function Usuarios() {
     }
 
     if (!editando && !form.password) {
-      setError("La contraseña es obligatoria para nuevos usuarios.");
+      setError("La contraseña es obligatoria para los usuarios nuevos.");
       return;
     }
 
@@ -194,10 +194,10 @@ export default function Usuarios() {
         <div>
           <div className="flex items-center gap-2.5">
             
-            <h2 className="text-2xl font-bold text-slate-800">Gestión de Usuarios</h2>
+            <h2 className="text-2xl font-bold text-slate-800">Gestión de usuarios</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Control de credenciales, asignación de roles y permisos del sistema.
+            Administra las credenciales, los roles y los permisos del sistema.
           </p>
         </div>
 
@@ -205,7 +205,7 @@ export default function Usuarios() {
           onClick={abrirCrear}
           className="bg-[#11B9BB] hover:bg-[#0ea5a7] text-white text-xs font-bold px-5 py-2.5 rounded-xl transition shadow-sm flex items-center gap-1.5"
         >
-          <span className="text-sm">+</span> Crear Nuevo Usuario
+          <span className="text-sm">+</span> Crear nuevo usuario
         </button>
       </div>
 
@@ -238,7 +238,7 @@ export default function Usuarios() {
           <option value="todos">Todos los roles</option>
           <option value="admin">Administrador</option>
           <option value="recepcionista">Recepcionista</option>
-          <option value="odontologo">Odontologo</option>
+          <option value="odontologo">Odontólogo</option>
         </select>
       </div>
 
@@ -251,10 +251,10 @@ export default function Usuarios() {
           ) : (
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <tr className="bg-[#087f81] text-[11px] font-bold text-white uppercase tracking-wider">
                   <th className="py-4 px-6">Usuario / Colaborador</th>
-                  <th className="py-4 px-6">Correo Electrónico</th>
-                  <th className="py-4 px-6">Rol de Sistema</th>
+                  <th className="py-4 px-6">Correo electrónico</th>
+                  <th className="py-4 px-6">Rol del sistema</th>
                   <th className="py-4 px-6">Permisos</th>
                   <th className="py-4 px-6">Estado</th>
                   <th className="py-4 px-6 text-center">Acciones</th>
@@ -324,7 +324,7 @@ export default function Usuarios() {
                                 : "bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-100"
                             }`}
                           >
-                            {usuario.activo !== false ? "Suspender" : "Dar Alta"}
+                            {usuario.activo !== false ? "Suspender" : "Dar de alta"}
                           </button>
                           <button
                             onClick={() => eliminarUsuario(usuario)}
@@ -350,7 +350,7 @@ export default function Usuarios() {
             className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-xl border border-slate-100 max-h-[90vh] overflow-y-auto"
           >
             <h3 className="text-base font-bold text-slate-800 mb-4">
-              {editando ? "Editar Colaborador" : "Registrar Nuevo Colaborador"}
+              {editando ? "Editar colaborador" : "Registrar nuevo colaborador"}
             </h3>
 
             {error && (
@@ -361,7 +361,7 @@ export default function Usuarios() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">Nombre Completo</label>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Nombre completo</label>
                 <input
                   type="text"
                   required
@@ -373,7 +373,7 @@ export default function Usuarios() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">Correo Electrónico</label>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Correo electrónico</label>
                 <input
                   type="email"
                   required
@@ -399,7 +399,7 @@ export default function Usuarios() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">Rol de Acceso</label>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Rol de acceso</label>
                 <select
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none font-medium text-slate-700"
                   value={form.rol}
@@ -414,7 +414,7 @@ export default function Usuarios() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-2">Permisos del Sistema</label>
+                <label className="block text-xs font-bold text-slate-400 mb-2">Permisos del sistema</label>
                 <div className="grid grid-cols-2 gap-2">
                   {permisosDisponibles.map((permiso) => (
                     <label
@@ -456,7 +456,7 @@ export default function Usuarios() {
                 type="submit"
                 className="bg-[#11B9BB] text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-sm"
               >
-                {editando ? "Guardar Cambios" : "Guardar Usuario"}
+                {editando ? "Guardar cambios" : "Guardar usuario"}
               </button>
             </div>
           </form>

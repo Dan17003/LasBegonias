@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { Cita, Odontologo, Paciente } from "../models/index.js";
+import { Atencion, Cita, Odontologo, Paciente, sequelize } from "../models/index.js";
 import {
   crearConfirmacionCita,
   crearNotificacionCita,
@@ -43,9 +43,34 @@ export const crearCita = async (req, res) => {
       if (odontologo) datos.odontologo_id = odontologo.id;
     }
 
-    const cita = await Cita.create({
-      ...datos,
-      token_respuesta: generarTokenRespuesta(),
+    let atencionOrigen = null;
+    if (req.body.atencion_origen_id !== undefined && req.body.atencion_origen_id !== null && req.body.atencion_origen_id !== "") {
+      if (!/^\d+$/.test(String(req.body.atencion_origen_id))) {
+        return res.status(400).json({ error: "La atención de seguimiento no es válida." });
+      }
+      atencionOrigen = await Atencion.findOne({
+        where: {
+          id: Number(req.body.atencion_origen_id),
+          paciente_id: paciente.id,
+          ...(odontologo ? { odontologo_id: odontologo.id } : {}),
+        },
+      });
+      if (!odontologo) {
+        return res.status(400).json({ error: "Selecciona al odontólogo responsable de la atención de seguimiento." });
+      }
+      if (!atencionOrigen) return res.status(400).json({ error: "La atención de seguimiento no pertenece a este paciente u odontólogo." });
+      if (atencionOrigen.proxima_cita_id) {
+        return res.status(409).json({ error: "Esta atención ya tiene una cita de seguimiento vinculada." });
+      }
+    }
+    const cita = await sequelize.transaction(async (transaction) => {
+      const created = await Cita.create({
+        ...datos,
+        atencion_origen_id: atencionOrigen?.id || null,
+        token_respuesta: generarTokenRespuesta(),
+      }, { transaction });
+      if (atencionOrigen) await atencionOrigen.update({ proxima_cita_id: created.id }, { transaction });
+      return created;
     });
     const citaConPaciente = await Cita.findByPk(cita.id, {
       include: [{ model: Paciente }],
@@ -59,6 +84,9 @@ export const crearCita = async (req, res) => {
 
     res.status(201).json(citaConPaciente || cita);
   } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError") {
+      return res.status(409).json({ error: "Esta atención ya tiene una cita de seguimiento vinculada." });
+    }
     res.status(400).json({ error: error.message });
   }
 };
@@ -99,6 +127,7 @@ export const actualizarCita = async (req, res) => {
     }
     const datos = { ...req.body };
     delete datos.id;
+    delete datos.atencion_origen_id;
     if (req.user?.rol?.toLowerCase() === "odontologo") {
       const odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
       datos.odontologo_id = odontologo.id;

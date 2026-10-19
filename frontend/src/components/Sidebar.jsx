@@ -67,6 +67,24 @@ const menuItems = [
     ),
   },
   {
+    id: "mis-pacientes",
+    label: "Mis pacientes",
+    icon: (
+      <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20a5 5 0 0 0-10 0M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm7-1 2 2 3-4" />
+      </svg>
+    ),
+  },
+  {
+    id: "asistente-ia",
+    label: "Asistente IA",
+    icon: (
+      <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0-1.414-1.414M7.05 7.05 5.636 5.636M8 9h8v6H8zM10 15v2m4-2v2" />
+      </svg>
+    ),
+  },
+  {
     id: "finanzas",
     label: "Finanzas",
     icon: (
@@ -80,8 +98,19 @@ const menuItems = [
 export default function Sidebar({ setView, currentView, setIsLogged }) {
   const permisos = obtenerPermisosUsuario();
   const userRol = normalizarRol(localStorage.getItem("rol"));
-  const nombreUsuario = localStorage.getItem("nombre") || userRol;
-  const itemsVisibles = menuItems.filter((item) => permisos.includes(item.id));
+  const etiquetasRol = {
+    recepcionista: "Recepcionista",
+    odontologo: "Odontólogo",
+    administrador: "Administrador",
+    admin: "Administrador",
+  };
+  const nombreUsuario = localStorage.getItem("nombre") || etiquetasRol[userRol] || "Usuario";
+  const etiquetaRol = etiquetasRol[userRol] || userRol || "Usuario";
+  const itemsVisibles = menuItems.filter((item) =>
+    item.id === "asistente-ia"
+      ? userRol === "odontologo"
+      : permisos.includes(item.id)
+  );
 
   const logout = () => {
     localStorage.clear();
@@ -128,17 +157,20 @@ export default function Sidebar({ setView, currentView, setIsLogged }) {
       </div>
 
       <div className="p-4 border-t border-white/15 bg-black/5 flex flex-col gap-3">
-        <div className="flex items-center justify-between rounded-2xl bg-white/12 px-3 py-3 border border-white/15">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-white text-[#0b8f91] rounded-xl flex items-center justify-center font-bold text-xs shadow-sm">
-              {nombreUsuario.charAt(0).toUpperCase()}
+        <div className="rounded-2xl border border-white/20 bg-gradient-to-br from-white/20 to-white/10 p-3 shadow-inner shadow-white/5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-white/70 bg-white text-sm font-extrabold text-[#087f81] shadow-md shadow-cyan-950/15">
+              {nombreUsuario.trim().charAt(0).toLocaleUpperCase("es")}
             </div>
-            <div className="text-left">
-              <p className="text-[10px] text-white/65 font-semibold uppercase tracking-wider">Sesion activa</p>
-              <p className="text-sm font-bold leading-tight capitalize truncate max-w-[140px]">
+            <div className="min-w-0 flex-1 text-left">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/70">Tu cuenta</p>
+              <p className="mt-0.5 truncate text-sm font-bold leading-tight" title={nombreUsuario}>
                 {nombreUsuario}
               </p>
-              <p className="text-[10px] text-white/65 capitalize">{userRol}</p>
+              <span className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/15 px-2 py-0.5 text-[10px] font-semibold text-white/90">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-200" aria-hidden="true" />
+                {etiquetaRol}
+              </span>
             </div>
           </div>
         </div>
@@ -147,7 +179,7 @@ export default function Sidebar({ setView, currentView, setIsLogged }) {
           onClick={logout}
           className="w-full bg-white/15 hover:bg-white text-white hover:text-[#087f81] font-bold py-2.5 rounded-xl transition duration-200 text-xs tracking-wide border border-white/20 hover:border-white"
         >
-          Cerrar sesion
+          Cerrar sesión
         </button>
       </div>
     </aside>

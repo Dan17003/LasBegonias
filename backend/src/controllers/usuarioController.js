@@ -16,7 +16,7 @@ const whereStaff = {
 const PERMISOS_POR_ROL = {
   admin: ["inicio", "usuarios", "doctores", "reportes"],
   recepcionista: ["inicio", "pacientes", "agenda", "finanzas"],
-  odontologo: ["inicio", "agenda", "perfil"],
+  odontologo: ["inicio", "agenda", "perfil", "mis-pacientes", "asistente-ia"],
 };
 
 const sinPassword = (usuario) => {
@@ -152,6 +152,8 @@ export const obtenerPermisosDisponibles = async (_req, res) => {
       { id: "pacientes", label: "Pacientes" },
       { id: "agenda", label: "Agenda" },
       { id: "perfil", label: "Mi perfil" },
+      { id: "mis-pacientes", label: "Mis pacientes" },
+      { id: "asistente-ia", label: "Asistente IA" },
       { id: "finanzas", label: "Finanzas" },
       { id: "doctores", label: "Doctores" },
       { id: "usuarios", label: "Usuarios" },

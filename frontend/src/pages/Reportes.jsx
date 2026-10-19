@@ -536,7 +536,7 @@ export default function Reportes() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50/70 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                <tr className="bg-[#087f81] text-[11px] font-bold text-white uppercase tracking-wider">
                   <th className="py-4 px-6">Odontologo</th>
                   <th className="py-4 px-6">Especialidad</th>
                   <th className="py-4 px-6 text-center">Citas</th>

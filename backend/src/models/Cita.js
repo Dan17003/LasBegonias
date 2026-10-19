@@ -49,6 +49,7 @@ const Cita = sequelize.define(
       type: DataTypes.STRING,
       defaultValue: "Programada",
     },
+    atencion_origen_id: { type: DataTypes.INTEGER, allowNull: true },
 
     token_respuesta: {
       type: DataTypes.STRING,

@@ -36,7 +36,7 @@ export default function Agenda() {
   const [citas, setCitas] = useState([]);
   const [pacientes, setPacientes] = useState([]);
 
-  const [formCita, setFormCita] = useState({
+  const [formCita, setFormCita] = useState(() => ({
     paciente_id: "",
     odontologo_id: "",
     fecha: "",
@@ -44,11 +44,9 @@ export default function Agenda() {
     hora_fin: "",
     motivo: "Consulta general",
     doctor: "",
-    servicio: "",
-    consultorio: "",
     nota_cita: "",
     estado: "Programada",
-  });
+  }));
 
   const formCitaVacio = () => ({
     paciente_id: "",
@@ -58,8 +56,6 @@ export default function Agenda() {
     hora_fin: "",
     motivo: "Consulta general",
     doctor: doctoresDisponibles[0]?.nombre || "",
-    servicio: "",
-    consultorio: "",
     nota_cita: "",
     estado: "Programada",
   });
@@ -87,6 +83,7 @@ export default function Agenda() {
     }
   };
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization
   const nombresDoctores = useMemo(
     () => ["Todos", ...odontologos.map((d) => corregirEncoding(d.nombre))],
     [odontologos]
@@ -96,6 +93,7 @@ export default function Agenda() {
 
   useEffect(() => {
     if (selectedDoctor !== "Todos" && !nombresDoctores.includes(selectedDoctor)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSelectedDoctor("Todos");
     }
   }, [nombresDoctores, selectedDoctor]);
@@ -119,6 +117,7 @@ export default function Agenda() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     obtenerPacientes();
     obtenerCitas();
     obtenerOdontologos();
@@ -228,8 +227,6 @@ export default function Agenda() {
       hora_fin: cita.hora_fin || "",
       motivo: cita.motivo || "Consulta general",
       doctor: cita.doctor || "",
-      servicio: cita.servicio || "",
-      consultorio: cita.consultorio || "",
       nota_cita: cita.nota_cita || "",
       estado: cita.estado || "Programada",
     });
@@ -247,9 +244,7 @@ export default function Agenda() {
       hora_fin: formCita.hora_fin,
       motivo: formCita.motivo,
       doctor: formCita.doctor,
-      servicio: formCita.servicio,
-      consultorio: formCita.consultorio,
-      nota_cita: formCita.nota_cita,
+      nota_cita: formCita.nota_cita.trim() || null,
       estado: formCita.estado,
     };
 
@@ -649,52 +644,6 @@ export default function Agenda() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">
-                  Servicio
-                </label>
-
-                <select
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl"
-                  value={formCita.servicio}
-                  onChange={(e) =>
-                    setFormCita({
-                      ...formCita,
-                      servicio: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Seleccionar</option>
-                  <option value="Limpieza Dental">Limpieza Dental</option>
-                  <option value="Ortodoncia">Ortodoncia</option>
-                  <option value="Endodoncia">Endodoncia</option>
-                  <option value="Extracción">Extracción</option>
-                  <option value="Blanqueamiento">Blanqueamiento</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">
-                  Consultorio
-                </label>
-
-                <select
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl"
-                  value={formCita.consultorio}
-                  onChange={(e) =>
-                    setFormCita({
-                      ...formCita,
-                      consultorio: e.target.value,
-                    })
-                  }
-                >
-                  <option value="">Seleccionar</option>
-                  <option value="Consultorio 1">Consultorio 1</option>
-                  <option value="Consultorio 2">Consultorio 2</option>
-                  <option value="Consultorio 3">Consultorio 3</option>
-                </select>
-              </div>
-
-              <div>
                 <label className="block text-xs font-bold text-slate-400 mb-1">Estado de la cita</label>
                 <select
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none font-medium text-slate-700"
@@ -732,7 +681,7 @@ export default function Agenda() {
                 >
                   <option value="">Seleccionar odontólogo</option>
                   {doctoresDisponibles.map((doc) => (
-                    <option key={doc.id} value={doc.nombre}>
+                    <option key={doc.id} value={doc.id}>
                       {doc.nombre} — {doc.especialidad}
                     </option>
                   ))}
@@ -742,7 +691,7 @@ export default function Agenda() {
 
             <div>
               <label className="block text-xs font-bold text-slate-400 mb-1">
-                Observaciones
+                Observaciones (opcional)
               </label>
 
               <textarea

@@ -1,8 +1,17 @@
 import { Paciente } from "../models/index.js";
 import { esEmailValido } from "../utils/email.js";
 
+const rechazarOdontologoAdministrativo = (req, res) => {
+  if (req.user?.rol?.toLowerCase() === "odontologo") {
+    res.status(403).json({ error: "El odontólogo debe consultar pacientes desde Mis pacientes." });
+    return true;
+  }
+  return false;
+};
+
 export const crearPaciente = async (req, res) => {
   try {
+    if (rechazarOdontologoAdministrativo(req, res)) return;
     if (!esEmailValido(req.body.email)) {
       return res.status(400).json({ error: "Ingrese un email valido." });
     }
@@ -16,6 +25,7 @@ export const crearPaciente = async (req, res) => {
 
 export const listarPacientes = async (req, res) => {
   try {
+    if (rechazarOdontologoAdministrativo(req, res)) return;
     const pacientes = await Paciente.findAll();
     res.json(pacientes);
   } catch (error) {
@@ -25,6 +35,7 @@ export const listarPacientes = async (req, res) => {
 
 export const actualizarPaciente = async (req, res) => {
   try {
+    if (rechazarOdontologoAdministrativo(req, res)) return;
     if (!esEmailValido(req.body.email)) {
       return res.status(400).json({ error: "Ingrese un email valido." });
     }
@@ -44,6 +55,7 @@ export const actualizarPaciente = async (req, res) => {
 
 export const eliminarPaciente = async (req, res) => {
   try {
+    if (rechazarOdontologoAdministrativo(req, res)) return;
     const paciente = await Paciente.findByPk(req.params.id);
 
     if (!paciente) {
