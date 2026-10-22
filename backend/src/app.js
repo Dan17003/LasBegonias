@@ -12,6 +12,7 @@ import notificacionRoutes from "./routes/notificacionRoutes.js";
 import historiaRoutes from "./routes/historiaRoutes.js";
 import servicioRoutes from "./routes/servicioRoutes.js";
 import odontologoAiRoutes from "./routes/odontologoAiRoutes.js";
+import portalPacienteRoutes from "./routes/portalPacienteRoutes.js";
 
 const app = express();
 
@@ -47,5 +48,6 @@ app.use("/api/notificaciones", notificacionRoutes);
 app.use("/api/historia", historiaRoutes);
 app.use("/api/servicios", servicioRoutes);
 app.use("/api/odontologo/ai", odontologoAiRoutes);
+app.use("/api/portal-paciente", portalPacienteRoutes);
 
 export default app;

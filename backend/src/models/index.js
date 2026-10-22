@@ -25,6 +25,8 @@ import DocumentoClinico from "./DocumentoClinico.js";
 import Servicio from "./Servicio.js";
 import ServicioSolicitado from "./ServicioSolicitado.js";
 import PresupuestoDetalle from "./PresupuestoDetalle.js";
+import RespuestaPresupuestoPaciente from "./RespuestaPresupuestoPaciente.js";
+import SolicitudPagoPaciente from "./SolicitudPagoPaciente.js";
 
 
 Paciente.belongsTo(Usuario, { foreignKey: "usuario_id" });
@@ -167,4 +169,5 @@ export {
   AntecedenteOdontologico, PeriodontogramaEvaluacion, PeriodontogramaMedicion, HistoriaDiagnostico, HistoriaDiagnosticoCambio, PlanTratamiento,
   ProcedimientoRealizado, Consentimiento, DocumentoClinico,
   Servicio, ServicioSolicitado, PresupuestoDetalle,
+  RespuestaPresupuestoPaciente, SolicitudPagoPaciente,
 };

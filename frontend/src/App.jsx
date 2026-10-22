@@ -3,11 +3,12 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 
 export default function App() {
-  const [isLogged, setIsLogged] = useState(false);
+  const [isLogged, setIsLogged] = useState(() => Boolean(localStorage.getItem("token")));
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    setIsLogged(!!token);
+    const cerrarSesionExpirada = () => setIsLogged(false);
+    window.addEventListener("auth:expired", cerrarSesionExpirada);
+    return () => window.removeEventListener("auth:expired", cerrarSesionExpirada);
   }, []);
 
   return isLogged

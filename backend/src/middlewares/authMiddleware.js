@@ -39,6 +39,13 @@ export const requireStaff = (req, res, next) => {
   next();
 };
 
+export const requirePatient = (req, res, next) => {
+  if (req.user?.rol?.toLowerCase() !== "paciente") {
+    return res.status(403).json({ error: "Acceso denegado. Se requiere una cuenta de paciente." });
+  }
+  next();
+};
+
 export const requireReceptionOrAdmin = (req, res, next) => {
   const rol = req.user?.rol?.toLowerCase();
   if (!["admin", "recepcionista"].includes(rol)) {
