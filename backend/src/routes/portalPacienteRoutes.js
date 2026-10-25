@@ -2,7 +2,6 @@ import express from "express";
 import {
   actualizarCitaPaciente,
   actualizarPerfilPaciente,
-  declararPagoPaciente,
   listarCitasPaciente,
   listarDisponibilidadPaciente,
   listarDocumentosAutorizadosPaciente,
@@ -13,7 +12,6 @@ import {
   obtenerCatalogoPaciente,
   obtenerPerfilPaciente,
   responderPreguntaPaciente,
-  responderPresupuestoPaciente,
   solicitarCitaPaciente,
 } from "../controllers/portalPacienteController.js";
 import { obtenerArchivoAutorizadoPaciente } from "../controllers/documentoClinicoController.js";
@@ -32,8 +30,6 @@ router.patch("/citas/:id", actualizarCitaPaciente);
 router.get("/documentos", listarDocumentosAutorizadosPaciente);
 router.get("/documentos/:documentoId/archivo", obtenerArchivoAutorizadoPaciente);
 router.get("/finanzas", listarFinanzasPaciente);
-router.put("/presupuestos/:id/respuesta", responderPresupuestoPaciente);
-router.post("/pagos/declaraciones", declararPagoPaciente);
 router.get("/notificaciones", listarNotificacionesPaciente);
 router.put("/notificaciones/leidas", marcarTodasNotificacionesPacienteLeidas);
 router.put("/notificaciones/:id/leida", marcarNotificacionPacienteLeida);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../services/api";
+import Sidebar from "../components/Sidebar";
 
 const SECCIONES = [
   ["resumen", "Inicio"],
@@ -10,25 +11,42 @@ const SECCIONES = [
   ["asistente", "Asistente virtual"],
 ];
 
-const CAMPOS_PERFIL = [
-  ["nombres", "Nombres", true],
-  ["apellidos", "Apellidos"],
-  ["telefono", "Teléfono", false, "tel"],
-  ["email", "Correo de contacto", false, "email"],
-  ["fecha_nacimiento", "Fecha de nacimiento", false, "date"],
-  ["sexo", "Sexo"],
-  ["direccion", "Dirección"],
-  ["distrito", "Distrito"],
-  ["ocupacion", "Ocupación"],
-  ["estado_civil", "Estado civil"],
-  ["contacto_emergencia", "Contacto de emergencia"],
-  ["telefono_emergencia", "Teléfono de emergencia", false, "tel"],
-  ["parentesco_emergencia", "Parentesco de emergencia"],
+const GRUPOS_PERFIL = [
+  {
+    titulo: "Datos personales",
+    descripcion: "Información básica de tu ficha clínica.",
+    campos: [
+      ["nombres", "Nombres", true],
+      ["apellidos", "Apellidos"],
+      ["telefono", "Teléfono", false, "tel"],
+      ["email", "Correo de contacto", false, "email"],
+      ["fecha_nacimiento", "Fecha de nacimiento", false, "date"],
+      ["sexo", "Sexo"],
+      ["ocupacion", "Ocupación"],
+      ["estado_civil", "Estado civil"],
+    ],
+  },
+  {
+    titulo: "Ubicación",
+    descripcion: "Datos para ubicarte y contactarte.",
+    campos: [
+      ["direccion", "Dirección"],
+      ["distrito", "Distrito"],
+    ],
+  },
+  {
+    titulo: "Contacto de emergencia",
+    descripcion: "Persona a contactar en caso necesario.",
+    campos: [
+      ["contacto_emergencia", "Contacto de emergencia"],
+      ["telefono_emergencia", "Teléfono de emergencia", false, "tel"],
+      ["parentesco_emergencia", "Parentesco de emergencia"],
+    ],
+  },
 ];
 
 const CAMPO = "mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-[#11B9BB] focus:ring-2 focus:ring-[#11B9BB]/20";
 const FORM_CITA_INICIAL = { servicio_id: "", odontologo_id: "", fecha: "", hora_inicio: "" };
-const FORM_PAGO_INICIAL = { presupuesto_id: "", monto: "", fecha_declarada: "", metodo: "transferencia", referencia: "" };
 const fechaActualLocal = () => {
   const hoy = new Date();
   return `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
@@ -71,7 +89,7 @@ export default function PortalPaciente({ setIsLogged }) {
   const [citas, setCitas] = useState([]);
   const [catalogo, setCatalogo] = useState({ servicios: [], odontologos: [] });
   const [documentos, setDocumentos] = useState([]);
-  const [finanzas, setFinanzas] = useState({ presupuestos: [], pagos: [], declaraciones: [], respuestas: [] });
+  const [finanzas, setFinanzas] = useState({ presupuestos: [], pagos: [] });
   const [notificaciones, setNotificaciones] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -84,7 +102,6 @@ export default function PortalPaciente({ setIsLogged }) {
   const [consultandoDisponibilidadCambio, setConsultandoDisponibilidadCambio] = useState(false);
   const [errorDisponibilidad, setErrorDisponibilidad] = useState("");
   const [errorDisponibilidadCambio, setErrorDisponibilidadCambio] = useState("");
-  const [pagoForm, setPagoForm] = useState(FORM_PAGO_INICIAL);
   const [citaReprogramar, setCitaReprogramar] = useState(null);
   const [chat, setChat] = useState([]);
   const [pregunta, setPregunta] = useState("");
@@ -232,19 +249,6 @@ export default function PortalPaciente({ setIsLogged }) {
     }
   };
 
-  const responderPresupuesto = async (id, respuesta) => {
-    await ejecutar(() => api.put(`/portal-paciente/presupuestos/${id}/respuesta`, { respuesta }), "Tu respuesta quedó registrada.");
-  };
-
-  const declararPago = async (event) => {
-    event.preventDefault();
-    await ejecutar(async () => {
-      const { data } = await api.post("/portal-paciente/pagos/declaraciones", pagoForm);
-      setPagoForm(FORM_PAGO_INICIAL);
-      setMensaje(data.mensaje);
-    }, "La declaración del pago fue enviada.");
-  };
-
   const abrirDocumento = async (documento) => {
     setError("");
     try {
@@ -277,62 +281,79 @@ export default function PortalPaciente({ setIsLogged }) {
     }
   };
 
-  const cerrarSesion = () => {
-    localStorage.clear();
-    setIsLogged(false);
-    window.location.reload();
-  };
-
   const notificacionesNoLeidas = notificaciones.filter((item) => !item.leida).length;
+  const citasPendientes = citas.filter((cita) => !["Cancelada", "Atendida"].includes(cita.estado)).length;
+  const saldoPendiente = finanzas.presupuestos.reduce((total, presupuesto) => {
+    const pagado = finanzas.pagos
+      .filter((pago) => pago.presupuesto_id === presupuesto.id)
+      .reduce((subtotal, pago) => subtotal + Number(pago.monto), 0);
+    return total + Math.max(0, Number(presupuesto.monto) - pagado);
+  }, 0);
+  const tituloSeccion = SECCIONES.find(([id]) => id === seccion)?.[1];
 
   if (cargando) {
-    return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500">Cargando tu portal...</div>;
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-100 text-[17px] text-slate-500">
+        Cargando tu portal...
+      </div>
+    );
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-700">
-      <aside className="hidden w-64 shrink-0 flex-col bg-[#11B9BB] text-white md:flex">
-        <div className="border-b border-white/20 px-5 py-6">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">Clínica</p>
-          <h1 className="mt-1 text-lg font-extrabold">Las Begonias</h1>
-          <p className="mt-4 truncate text-sm font-semibold">{nombrePaciente(perfil)}</p>
-          <p className="text-xs text-white/75">Portal del paciente</p>
-        </div>
-        <nav className="flex-1 space-y-1 p-3">
-          {SECCIONES.map(([id, label]) => (
-            <button key={id} type="button" onClick={() => setSeccion(id)} className={`w-full rounded-xl px-3 py-2.5 text-left text-sm font-semibold transition ${seccion === id ? "bg-white text-[#087f81]" : "text-white/85 hover:bg-white/15"}`}>
-              {label}
-              {id === "resumen" && notificacionesNoLeidas > 0 && <span className="float-right rounded-full bg-rose-500 px-2 py-0.5 text-[10px] text-white">{notificacionesNoLeidas}</span>}
-            </button>
-          ))}
-        </nav>
-        <button type="button" onClick={cerrarSesion} className="m-4 rounded-xl border border-white/30 bg-white/10 px-3 py-2.5 text-sm font-bold hover:bg-white hover:text-[#087f81]">Cerrar sesión</button>
-      </aside>
+    <div className="flex h-screen bg-slate-100 text-[17px] text-slate-800">
+      <Sidebar
+        patientSections={SECCIONES}
+        sectionBadges={{ resumen: notificacionesNoLeidas }}
+        currentView={seccion}
+        setView={setSeccion}
+        setIsLogged={setIsLogged}
+      />
 
-      <main className="min-w-0 flex-1">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur sm:px-8">
-          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
+      <main className="min-w-0 flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,#e0f7f7_0,#f8fafc_34%,#eef2f7_100%)]">
+        <header className="sticky top-0 z-30 border-b border-white/70 bg-white/80 px-8 py-4 shadow-sm backdrop-blur-xl">
+          <div className="mx-auto flex max-w-7xl items-center justify-between gap-3">
             <div>
-              <h2 className="font-bold text-slate-800">{SECCIONES.find(([id]) => id === seccion)?.[1]}</h2>
-              <p className="text-xs text-slate-500 md:hidden">{nombrePaciente(perfil)} · Paciente</p>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Portal del paciente</p>
+              <h2 className="text-2xl font-bold text-slate-800">{tituloSeccion}</h2>
+              <p className="mt-0.5 text-xs text-slate-500">{nombrePaciente(perfil)}</p>
             </div>
-            <button type="button" onClick={cargarPortal} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50">Actualizar</button>
+            <button type="button" onClick={cargarPortal} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm hover:bg-slate-50">
+              Actualizar
+            </button>
           </div>
-          <nav className="mx-auto mt-3 flex max-w-6xl gap-2 overflow-x-auto pb-1 md:hidden">
-            {SECCIONES.map(([id, label]) => <button key={id} type="button" onClick={() => setSeccion(id)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${seccion === id ? "bg-[#11B9BB] text-white" : "bg-slate-100 text-slate-600"}`}>{label}</button>)}
-          </nav>
         </header>
 
-        <div className="mx-auto max-w-6xl space-y-5 p-4 sm:p-8">
+        <div className="mx-auto max-w-7xl space-y-6 p-8">
           {error && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-semibold text-rose-700">{error}</div>}
           {mensaje && <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{mensaje}<button type="button" onClick={() => setMensaje("")} className="float-right">×</button></div>}
 
           {seccion === "resumen" && (
             <>
-              <div className="rounded-2xl bg-gradient-to-r from-[#11B9BB] to-[#0e999b] p-6 text-white shadow-sm sm:p-8">
-                <p className="text-sm text-white/80">Bienvenido/a</p>
-                <h1 className="mt-1 text-2xl font-bold">{nombrePaciente(perfil)}</h1>
-                <p className="mt-2 max-w-2xl text-sm text-white/85">Consulta tus citas, datos personales, documentos autorizados y movimientos financieros desde tu espacio privado.</p>
+              <div className="rounded-3xl bg-gradient-to-r from-[#087f81] to-[#11B9BB] p-7 text-white shadow-lg">
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/70">Tu espacio clínico</p>
+                <h1 className="mt-2 text-3xl font-black">{nombrePaciente(perfil)}</h1>
+                <p className="mt-2 max-w-2xl text-sm text-white/80">
+                  Consulta tus citas, datos personales, documentos autorizados y movimientos financieros desde un solo lugar.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["Citas pendientes", citasPendientes, "Próximas citas y solicitudes en curso.", "citas"],
+                  ["Documentos", documentos.length, "Archivos habilitados por la clínica.", "documentos"],
+                  ["Saldo pendiente", formatoImporte(saldoPendiente), "Según pagos confirmados por recepción.", "finanzas"],
+                  ["Notificaciones", notificacionesNoLeidas, "Avisos sin leer en tu bandeja.", "resumen"],
+                ].map(([titulo, valor, detalle, destino]) => (
+                  <button
+                    key={titulo}
+                    type="button"
+                    onClick={() => setSeccion(destino)}
+                    className="rounded-2xl border border-slate-100 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  >
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{titulo}</p>
+                    <p className="mt-3 text-2xl font-black text-[#087f81]">{valor}</p>
+                    <p className="mt-1 text-xs text-slate-500">{detalle}</p>
+                  </button>
+                ))}
               </div>
               <div className="grid gap-5 lg:grid-cols-2">
                 <Panel titulo="Próximas citas">
@@ -348,19 +369,60 @@ export default function PortalPaciente({ setIsLogged }) {
           )}
 
           {seccion === "perfil" && perfil && (
-            <Panel titulo="Mis datos personales" descripcion="El DNI y el correo usado para iniciar sesión son de solo lectura. Para corregirlos, contacta con la clínica.">
-              <form onSubmit={guardarPerfil} className="grid gap-4 sm:grid-cols-2">
-                <label className="block text-xs font-bold text-slate-500">DNI<input value={perfil.dni || ""} readOnly className={`${CAMPO} bg-slate-100`} /></label>
-                <label className="block text-xs font-bold text-slate-500">Correo de inicio de sesión<input value={emailAcceso} readOnly className={`${CAMPO} bg-slate-100`} /></label>
-                {CAMPOS_PERFIL.map(([campo, label, requerido, tipo]) => <label key={campo} className="block text-xs font-bold text-slate-500">{label}<input type={tipo || "text"} required={Boolean(requerido)} value={perfil[campo] || ""} onChange={(event) => cambiarPerfil(campo, event.target.value)} className={CAMPO} /></label>)}
-                <button disabled={guardando} className="rounded-xl bg-[#11B9BB] px-6 py-3 text-sm font-bold text-white hover:bg-[#0e999b] disabled:opacity-60 sm:col-span-2 sm:justify-self-start">{guardando ? "Guardando..." : "Guardar mis datos"}</button>
+            <>
+              <div className="mb-2">
+                <h3 className="text-2xl font-bold text-slate-800">Mis datos personales</h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  El DNI y el correo usado para iniciar sesión son de solo lectura. Para corregirlos, contacta con la clínica.
+                </p>
+              </div>
+              <form onSubmit={guardarPerfil} className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <section className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm lg:col-span-2">
+                  <h4 className="border-b border-slate-100 pb-3 font-bold text-slate-800">Identidad y acceso</h4>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <label className="block text-xs font-bold text-slate-400">
+                      DNI
+                      <input value={perfil.dni || ""} readOnly className={`${CAMPO} bg-slate-100`} />
+                    </label>
+                    <label className="block text-xs font-bold text-slate-400">
+                      Correo de inicio de sesión
+                      <input value={emailAcceso} readOnly className={`${CAMPO} bg-slate-100`} />
+                    </label>
+                  </div>
+                </section>
+                {GRUPOS_PERFIL.map(({ titulo, descripcion, campos }) => (
+                  <section key={titulo} className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+                    <div className="border-b border-slate-100 pb-3">
+                      <h4 className="font-bold text-slate-800">{titulo}</h4>
+                      <p className="mt-1 text-xs text-slate-500">{descripcion}</p>
+                    </div>
+                    {campos.map(([campo, label, requerido, tipo]) => (
+                      <label key={campo} className="block text-xs font-bold text-slate-400">
+                        {label}
+                        <input
+                          type={tipo || "text"}
+                          required={Boolean(requerido)}
+                          value={perfil[campo] || ""}
+                          onChange={(event) => cambiarPerfil(campo, event.target.value)}
+                          className={CAMPO}
+                        />
+                      </label>
+                    ))}
+                  </section>
+                ))}
+                <button
+                  disabled={guardando}
+                  className="rounded-xl bg-[#11B9BB] py-3 text-sm font-bold text-white transition hover:bg-[#0ea5a7] disabled:opacity-60 lg:col-span-2"
+                >
+                  {guardando ? "Guardando..." : "Guardar mis datos"}
+                </button>
               </form>
-            </Panel>
+            </>
           )}
 
           {seccion === "citas" && (
             <div className="space-y-5">
-              <Panel titulo="Solicitar una cita" descripcion="Consulta los espacios disponibles. La clínica confirmará la solicitud antes de que la cita quede reservada.">
+              <Panel titulo="Solicitar una cita" descripcion="Puedes solicitar una consulta inicial o limpieza dental. Para otros tratamientos, el odontólogo debe evaluarte primero y recepción coordinará la cita. La clínica confirmará tu solicitud.">
                 <form onSubmit={solicitarCita} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
                   <label className="text-xs font-bold text-slate-500 lg:col-span-2">Servicio<select required value={citaForm.servicio_id} onChange={(event) => setCitaForm((form) => ({ ...form, servicio_id: event.target.value }))} className={CAMPO}><option value="">Selecciona un servicio</option>{catalogo.servicios.map((servicio) => <option key={servicio.id} value={servicio.id}>{servicio.nombre} · {formatoImporte(servicio.precio, servicio.moneda)}</option>)}</select></label>
                   <label className="text-xs font-bold text-slate-500 lg:col-span-2">Odontólogo (opcional)<select value={citaForm.odontologo_id} onChange={(event) => { setDisponibilidad({ fecha: "", slots: [] }); setConsultandoDisponibilidad(Boolean(citaForm.fecha)); setErrorDisponibilidad(""); setCitaForm((form) => ({ ...form, odontologo_id: event.target.value, hora_inicio: "" })); }} className={CAMPO}><option value="">Que la clínica lo asigne</option>{catalogo.odontologos.map((doctor) => <option key={doctor.id} value={doctor.id}>{doctor.nombre} · {doctor.especialidad}</option>)}</select></label>
@@ -393,30 +455,16 @@ export default function PortalPaciente({ setIsLogged }) {
                     .reduce((subtotal, pago) => subtotal + Number(pago.monto), 0);
                   return total + Math.max(0, Number(presupuesto.monto) - pagado);
                 }, 0))}</p>
-                <p className="mt-1 text-xs text-amber-800">Las declaraciones pendientes de verificación no se descuentan del saldo.</p>
+                <p className="mt-1 text-xs text-amber-800">Este saldo considera únicamente los pagos registrados por la clínica.</p>
               </div>
-              <Panel titulo="Presupuestos" descripcion="Acepta o rechaza presupuestos emitidos para ti.">
+              <Panel titulo="Presupuestos" descripcion="Consulta los presupuestos y saldos registrados por la clínica. Para resolver dudas, comunícate con recepción.">
                 {finanzas.presupuestos.length === 0 ? <MensajeVacio>No tienes presupuestos registrados.</MensajeVacio> : <div className="space-y-3">{finanzas.presupuestos.map((presupuesto) => {
-                  const respuesta = finanzas.respuestas.find((item) => item.presupuesto_id === presupuesto.id)?.respuesta;
                   const pagado = finanzas.pagos.filter((pago) => pago.presupuesto_id === presupuesto.id).reduce((subtotal, pago) => subtotal + Number(pago.monto), 0);
-                  return <article key={presupuesto.id} className="rounded-xl border border-slate-100 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-slate-800">{presupuesto.titulo || presupuesto.descripcion}</p><p className="mt-1 text-xs text-slate-500">Vigencia: {formatoFecha(presupuesto.fecha_vigencia)} · Estado: {presupuesto.estado}</p><p className="mt-2 text-lg font-bold text-[#0e999b]">{formatoImporte(presupuesto.monto)}</p><p className="mt-1 text-xs font-semibold text-amber-800">Saldo: {formatoImporte(Math.max(0, Number(presupuesto.monto) - pagado))}</p>{presupuesto.PresupuestoDetalles?.map((detalle) => <p key={detalle.id} className="mt-1 text-xs text-slate-600">{detalle.cantidad} × {detalle.servicio_nombre}</p>)}</div>{respuesta ? <span className="rounded-full bg-cyan-50 px-3 py-1 text-xs font-bold text-cyan-800">Tu respuesta: {respuesta}</span> : <div className="flex gap-2"><button type="button" onClick={() => responderPresupuesto(presupuesto.id, "Aceptado")} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700">Aceptar</button><button type="button" onClick={() => responderPresupuesto(presupuesto.id, "Rechazado")} className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700 hover:bg-rose-50">Rechazar</button></div>}</div></article>;
+                  return <article key={presupuesto.id} className="rounded-xl border border-slate-100 p-4"><p className="font-semibold text-slate-800">{presupuesto.titulo || presupuesto.descripcion}</p><p className="mt-1 text-xs text-slate-500">Vigencia: {formatoFecha(presupuesto.fecha_vigencia)} · Estado: {presupuesto.estado}</p><p className="mt-2 text-lg font-bold text-[#0e999b]">{formatoImporte(presupuesto.monto)}</p><p className="mt-1 text-xs font-semibold text-amber-800">Saldo: {formatoImporte(Math.max(0, Number(presupuesto.monto) - pagado))}</p>{presupuesto.PresupuestoDetalles?.map((detalle) => <p key={detalle.id} className="mt-1 text-xs text-slate-600">{detalle.cantidad} × {detalle.servicio_nombre}</p>)}</article>;
                 })}</div>}
-              </Panel>
-              <Panel titulo="Registrar un pago" descripcion="La declaración no es un comprobante ni confirma que el pago se haya recibido. La clínica debe verificarla.">
-                <form onSubmit={declararPago} className="grid gap-4 sm:grid-cols-2">
-                  <label className="text-xs font-bold text-slate-500">Presupuesto (opcional)<select value={pagoForm.presupuesto_id} onChange={(event) => setPagoForm((form) => ({ ...form, presupuesto_id: event.target.value }))} className={CAMPO}><option value="">Sin asociar</option>{finanzas.presupuestos.map((item) => <option key={item.id} value={item.id}>{item.titulo || item.descripcion} · {formatoImporte(item.monto)}</option>)}</select></label>
-                  <label className="text-xs font-bold text-slate-500">Monto<input required type="number" min="0.01" step="0.01" value={pagoForm.monto} onChange={(event) => setPagoForm((form) => ({ ...form, monto: event.target.value }))} className={CAMPO} /></label>
-                  <label className="text-xs font-bold text-slate-500">Fecha del pago<input required type="date" max={fechaActualLocal()} value={pagoForm.fecha_declarada} onChange={(event) => setPagoForm((form) => ({ ...form, fecha_declarada: event.target.value }))} className={CAMPO} /></label>
-                  <label className="text-xs font-bold text-slate-500">Medio de pago<select value={pagoForm.metodo} onChange={(event) => setPagoForm((form) => ({ ...form, metodo: event.target.value }))} className={CAMPO}>{[["transferencia", "Transferencia"], ["tarjeta", "Tarjeta"], ["efectivo", "Efectivo"], ["cheque", "Cheque"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-                  <label className="text-xs font-bold text-slate-500 sm:col-span-2">Referencia o número de operación (opcional)<input maxLength={160} value={pagoForm.referencia} onChange={(event) => setPagoForm((form) => ({ ...form, referencia: event.target.value }))} className={CAMPO} /></label>
-                  <button disabled={guardando} className="rounded-xl bg-[#11B9BB] px-5 py-3 text-sm font-bold text-white hover:bg-[#0e999b] disabled:opacity-60 sm:col-span-2 sm:justify-self-start">Enviar para verificación</button>
-                </form>
               </Panel>
               <Panel titulo="Pagos registrados por la clínica">
                 {finanzas.pagos.length === 0 ? <MensajeVacio>Aún no hay pagos confirmados registrados.</MensajeVacio> : <ul className="divide-y divide-slate-100">{finanzas.pagos.map((pago) => <li key={pago.id} className="flex justify-between gap-3 py-3 text-sm"><span>{formatoFecha(pago.created_at)} · {pago.metodo}</span><strong>{formatoImporte(pago.monto)}</strong></li>)}</ul>}
-              </Panel>
-              <Panel titulo="Declaraciones pendientes o revisadas">
-                {finanzas.declaraciones.length === 0 ? <MensajeVacio>No has declarado pagos.</MensajeVacio> : <ul className="divide-y divide-slate-100">{finanzas.declaraciones.map((pago) => <li key={pago.id} className="flex flex-wrap justify-between gap-2 py-3 text-sm"><span>{formatoFecha(pago.fecha_declarada)} · {pago.metodo} · {pago.estado}</span><strong>{formatoImporte(pago.monto)}</strong></li>)}</ul>}
               </Panel>
             </div>
           )}

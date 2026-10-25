@@ -8,9 +8,7 @@ import {
   Pago,
   Presupuesto,
   PresupuestoDetalle,
-  RespuestaPresupuestoPaciente,
   Servicio,
-  SolicitudPagoPaciente,
   Usuario,
 } from "../models/index.js";
 
@@ -19,7 +17,14 @@ const CAMPOS_EDITABLES = [
   "direccion", "distrito", "ocupacion", "estado_civil", "contacto_emergencia",
   "telefono_emergencia", "parentesco_emergencia",
 ];
-const METODOS_PAGO = ["efectivo", "tarjeta", "transferencia", "cheque"];
+const SERVICIOS_AUTOGESTIONABLES = new Set([
+  "consulta",
+  "consulta general",
+  "consulta inicial",
+  "limpieza",
+  "limpieza dental",
+  "profilaxis dental",
+]);
 const CAMPOS_PERFIL_PUBLICOS = [
   "id", "dni", "nombres", "apellidos", "telefono", "email", "fecha_nacimiento", "sexo",
   "direccion", "distrito", "ocupacion", "estado_civil", "contacto_emergencia",
@@ -46,6 +51,12 @@ const fechaISOValida = (value) => {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 };
 
+const normalizarNombreServicio = (nombre) =>
+  String(nombre || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("es");
+
+export const esServicioPacienteAutogestionable = (servicio) =>
+  SERVICIOS_AUTOGESTIONABLES.has(normalizarNombreServicio(servicio?.nombre));
+
 export const listarDisponibilidadPaciente = async (req, res) => {
   try {
     const fecha = req.query.fecha;
@@ -67,7 +78,7 @@ export const listarDisponibilidadPaciente = async (req, res) => {
 
 const obtenerFin = (hora) => {
   const [horas, minutos] = hora.split(":").map(Number);
-  const total = horas * 60 + minutos + 30;
+  const total = horas * 60 + minutos + 60;
   if (total >= 24 * 60) return null;
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}:00`;
 };
@@ -127,9 +138,9 @@ const obtenerDisponibilidad = async (fecha, odontologoId = null) => {
   for (const odontologo of odontologos) {
     const rango = obtenerRangoTurno(odontologo, fecha);
     if (!rango) continue;
-    for (let inicio = rango.inicio; inicio + 30 <= rango.fin; inicio += 30) {
+    for (let inicio = rango.inicio; inicio + 60 <= rango.fin; inicio += 60) {
       if (inicio <= ahora) continue;
-      const fin = inicio + 30;
+      const fin = inicio + 60;
       const ocupado = citas.some((cita) => {
         if (cita.odontologo_id !== odontologo.id && cita.doctor !== odontologo.nombre) return false;
         const citaInicio = minutosDesdeHora(String(cita.hora_inicio).slice(0, 5));
@@ -238,7 +249,9 @@ export const solicitarCitaPaciente = async (req, res) => {
     if (!horaFin) return res.status(400).json({ error: "La hora solicitada no es válida." });
 
     const servicio = await Servicio.findOne({ where: { id: servicioId, activo: true } });
-    if (!servicio) return res.status(400).json({ error: "Selecciona un servicio disponible." });
+    if (!servicio || !esServicioPacienteAutogestionable(servicio)) {
+      return res.status(400).json({ error: "Solo puedes solicitar una cita para consulta o limpieza dental. Los demás tratamientos los agenda recepción después de la evaluación odontológica." });
+    }
 
     const slots = await obtenerDisponibilidad(fecha, odontologoId || null);
     const slot = slots.find((opcion) => opcion.hora_inicio === horaInicio);
@@ -325,7 +338,7 @@ export const obtenerCatalogoPaciente = async (_req, res) => {
         where: { activo: true },
         attributes: ["id", "nombre", "categoria", "subcategoria", "precio", "moneda"],
         order: [["categoria", "ASC"], ["nombre", "ASC"]],
-      }),
+      }).then((servicios) => servicios.filter(esServicioPacienteAutogestionable)),
       Odontologo.findAll({
         where: { disponible: true },
         attributes: ["id", "nombre", "especialidad", "turno"],
@@ -378,7 +391,7 @@ export const listarFinanzasPaciente = async (req, res) => {
   try {
     const paciente = await obtenerPacienteActual(req);
     if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
-    const [presupuestos, pagos, declaraciones, respuestas] = await Promise.all([
+    const [presupuestos, pagos] = await Promise.all([
       Presupuesto.findAll({
         where: { paciente_id: paciente.id },
         attributes: ["id", "descripcion", "monto", "fecha_vigencia", "doctor", "titulo", "estado", "created_at"],
@@ -393,88 +406,12 @@ export const listarFinanzasPaciente = async (req, res) => {
         attributes: ["id", "presupuesto_id", "monto", "tipo_pago", "metodo", "created_at"],
         order: [["created_at", "DESC"]],
       }),
-      SolicitudPagoPaciente.findAll({
-        where: { paciente_id: paciente.id },
-        attributes: ["id", "presupuesto_id", "monto", "fecha_declarada", "metodo", "referencia", "estado", "creado_en"],
-        order: [["creado_en", "DESC"]],
-      }),
-      RespuestaPresupuestoPaciente.findAll({
-        where: { paciente_id: paciente.id },
-        attributes: ["presupuesto_id", "respuesta", "creado_en"],
-      }),
     ]);
     res.set("Cache-Control", "private, no-store");
-    res.json({ presupuestos, pagos, declaraciones, respuestas });
+    res.json({ presupuestos, pagos });
   } catch (error) {
     console.error("Patient finances read failed:", error);
     res.status(500).json({ error: "No se pudo cargar la información financiera." });
-  }
-};
-
-export const responderPresupuestoPaciente = async (req, res) => {
-  try {
-    const paciente = await obtenerPacienteActual(req);
-    if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
-    const { respuesta } = req.body;
-    if (!["Aceptado", "Rechazado"].includes(respuesta)) {
-      return res.status(400).json({ error: "La respuesta debe ser Aceptado o Rechazado." });
-    }
-    const presupuesto = await Presupuesto.findOne({
-      where: { id: req.params.id, paciente_id: paciente.id },
-      attributes: ["id", "estado"],
-    });
-    if (!presupuesto) return res.status(404).json({ error: "Presupuesto no encontrado." });
-    const [registro, creado] = await RespuestaPresupuestoPaciente.findOrCreate({
-      where: { presupuesto_id: presupuesto.id },
-      defaults: { paciente_id: paciente.id, respuesta },
-    });
-    if (!creado) {
-      if (registro.paciente_id !== paciente.id) return res.status(404).json({ error: "Presupuesto no encontrado." });
-      await registro.update({ respuesta });
-    }
-    res.json({ respuesta: registro.respuesta });
-  } catch (error) {
-    console.error("Patient budget response failed:", error);
-    res.status(error.name === "SequelizeUniqueConstraintError" ? 409 : 500).json({
-      error: "No se pudo registrar la respuesta al presupuesto.",
-    });
-  }
-};
-
-export const declararPagoPaciente = async (req, res) => {
-  try {
-    const paciente = await obtenerPacienteActual(req);
-    if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
-    const { presupuesto_id: presupuestoId, monto, fecha_declarada: fechaDeclarada, metodo, referencia } = req.body;
-    const importe = Number(monto);
-    if (!Number.isFinite(importe) || importe <= 0 || importe > 99999999.99 ||
-      Math.round(importe * 100) !== importe * 100 ||
-      !fechaISOValida(fechaDeclarada) || fechaDeclarada > fechaLocal() || !METODOS_PAGO.includes(metodo) ||
-      (referencia !== undefined && (typeof referencia !== "string" || referencia.length > 160))) {
-      return res.status(400).json({ error: "Verifica el monto, la fecha, el método y la referencia del pago." });
-    }
-    if (presupuestoId) {
-      const presupuesto = await Presupuesto.findOne({
-        where: { id: presupuestoId, paciente_id: paciente.id },
-        attributes: ["id"],
-      });
-      if (!presupuesto) return res.status(404).json({ error: "Presupuesto no encontrado." });
-    }
-    const declaracion = await SolicitudPagoPaciente.create({
-      paciente_id: paciente.id,
-      presupuesto_id: presupuestoId || null,
-      monto: importe.toFixed(2),
-      fecha_declarada: fechaDeclarada,
-      metodo,
-      referencia: referencia?.trim() || null,
-    });
-    res.status(201).json({
-      declaracion,
-      mensaje: "El pago fue declarado y queda pendiente de verificación por la clínica.",
-    });
-  } catch (error) {
-    console.error("Patient payment declaration failed:", error);
-    res.status(500).json({ error: "No se pudo registrar la declaración de pago." });
   }
 };
 

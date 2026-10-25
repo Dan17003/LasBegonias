@@ -95,7 +95,7 @@ const menuItems = [
   },
 ];
 
-export default function Sidebar({ setView, currentView, setIsLogged }) {
+export default function Sidebar({ setView, currentView, setIsLogged, patientSections, sectionBadges = {} }) {
   const permisos = obtenerPermisosUsuario();
   const userRol = normalizarRol(localStorage.getItem("rol"));
   const etiquetasRol = {
@@ -105,12 +105,25 @@ export default function Sidebar({ setView, currentView, setIsLogged }) {
     admin: "Administrador",
   };
   const nombreUsuario = localStorage.getItem("nombre") || etiquetasRol[userRol] || "Usuario";
-  const etiquetaRol = etiquetasRol[userRol] || userRol || "Usuario";
-  const itemsVisibles = menuItems.filter((item) =>
-    item.id === "asistente-ia"
-      ? userRol === "odontologo"
-      : permisos.includes(item.id)
-  );
+  const etiquetaRol = etiquetasRol[userRol] || (userRol === "paciente" ? "Paciente" : userRol) || "Usuario";
+  const iconosPaciente = {
+    resumen: "inicio",
+    perfil: "perfil",
+    citas: "agenda",
+    documentos: "pacientes",
+    finanzas: "finanzas",
+    asistente: "asistente-ia",
+  };
+  const itemsVisibles = patientSections
+    ? patientSections.map(([id, label]) => {
+      const base = menuItems.find((item) => item.id === iconosPaciente[id]);
+      return base ? { ...base, id, label } : { id, label, icon: menuItems[0].icon };
+    })
+    : menuItems.filter((item) =>
+      item.id === "asistente-ia"
+        ? userRol === "odontologo"
+        : permisos.includes(item.id)
+    );
 
   const logout = () => {
     localStorage.clear();
@@ -149,7 +162,12 @@ export default function Sidebar({ setView, currentView, setIsLogged }) {
                 <div className={isActive ? "text-[#11B9BB]" : "opacity-85"}>
                   {item.icon}
                 </div>
-                {item.label}
+                <span className="flex-1 text-left">{item.label}</span>
+                {sectionBadges[item.id] > 0 && (
+                  <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                    {sectionBadges[item.id]}
+                  </span>
+                )}
               </button>
             );
           })}

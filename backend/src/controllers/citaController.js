@@ -1,5 +1,5 @@
 import { Op } from "sequelize";
-import { Atencion, Cita, Odontologo, Paciente, sequelize } from "../models/index.js";
+import { Atencion, Cita, Notificacion, Odontologo, Paciente, sequelize } from "../models/index.js";
 import {
   crearConfirmacionCita,
   crearNotificacionCita,
@@ -10,6 +10,55 @@ import {
   registrarRespuestaPaciente,
 } from "../services/respuestaCitaService.js";
 import { esEmailValido } from "../utils/email.js";
+
+const FORMATO_HORA = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+
+const horaEnSegundos = (hora) => {
+  const [horas, minutos, segundos = "0"] = hora.split(":");
+  return Number(horas) * 3600 + Number(minutos) * 60 + Number(segundos);
+};
+
+const normalizarHora = (hora) => (hora.length === 5 ? `${hora}:00` : hora);
+
+export const obtenerHoraFinCita = (horaInicio, horaFin) => {
+  if (typeof horaInicio !== "string" || !FORMATO_HORA.test(horaInicio)) return null;
+  const inicio = horaEnSegundos(horaInicio);
+  if (horaFin) {
+    if (
+      typeof horaFin !== "string" ||
+      !FORMATO_HORA.test(horaFin) ||
+      horaEnSegundos(horaFin) <= inicio
+    ) return null;
+    return normalizarHora(horaFin);
+  }
+  const fin = inicio + 3600;
+  if (fin >= 24 * 3600) return null;
+  return `${String(Math.floor(fin / 3600)).padStart(2, "0")}:${String(Math.floor((fin % 3600) / 60)).padStart(2, "0")}:00`;
+};
+
+const buscarCitaMismoHorario = ({ fecha, horaInicio, odontologoId, doctor, excluirId, transaction }) =>
+  Cita.findOne({
+    where: {
+      fecha,
+      hora_inicio: normalizarHora(horaInicio),
+      estado: { [Op.ne]: "Cancelada" },
+      ...(excluirId ? { id: { [Op.ne]: excluirId } } : {}),
+      [Op.or]: [
+        ...(odontologoId ? [{ odontologo_id: odontologoId }] : []),
+        { doctor },
+      ],
+    },
+    transaction,
+    lock: transaction?.LOCK?.UPDATE,
+  });
+
+const bloquearOdontologo = (odontologoId, transaction) => {
+  if (!odontologoId) return Promise.resolve();
+  return Odontologo.findByPk(odontologoId, {
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+};
 
 export const crearCita = async (req, res) => {
   try {
@@ -43,6 +92,13 @@ export const crearCita = async (req, res) => {
       if (odontologo) datos.odontologo_id = odontologo.id;
     }
 
+    const horaFin = obtenerHoraFinCita(datos.hora_inicio, datos.hora_fin);
+    if (!horaFin) {
+      return res.status(400).json({ error: "Indica una hora de inicio válida y una hora de fin posterior, si corresponde." });
+    }
+    datos.hora_inicio = normalizarHora(datos.hora_inicio);
+    datos.hora_fin = horaFin;
+
     let atencionOrigen = null;
     if (req.body.atencion_origen_id !== undefined && req.body.atencion_origen_id !== null && req.body.atencion_origen_id !== "") {
       if (!/^\d+$/.test(String(req.body.atencion_origen_id))) {
@@ -63,15 +119,28 @@ export const crearCita = async (req, res) => {
         return res.status(409).json({ error: "Esta atención ya tiene una cita de seguimiento vinculada." });
       }
     }
-    const cita = await sequelize.transaction(async (transaction) => {
+    const resultado = await sequelize.transaction(async (transaction) => {
+      await bloquearOdontologo(datos.odontologo_id, transaction);
+      const citaExistente = await buscarCitaMismoHorario({
+        fecha: datos.fecha,
+        horaInicio: datos.hora_inicio,
+        odontologoId: datos.odontologo_id,
+        doctor: datos.doctor,
+        transaction,
+      });
+      if (citaExistente) return { conflicto: true };
       const created = await Cita.create({
         ...datos,
         atencion_origen_id: atencionOrigen?.id || null,
         token_respuesta: generarTokenRespuesta(),
       }, { transaction });
       if (atencionOrigen) await atencionOrigen.update({ proxima_cita_id: created.id }, { transaction });
-      return created;
+      return { cita: created };
     });
+    if (resultado.conflicto) {
+      return res.status(409).json({ error: "Ese odontólogo ya tiene una cita en la fecha y hora seleccionadas." });
+    }
+    const cita = resultado.cita;
     const citaConPaciente = await Cita.findByPk(cita.id, {
       include: [{ model: Paciente }],
     });
@@ -113,6 +182,67 @@ export const listarCitas = async (req, res) => {
   }
 };
 
+export const aprobarSolicitudCita = async (req, res) => {
+  const citaId = Number(req.params.id);
+  if (!Number.isSafeInteger(citaId) || citaId < 1) {
+    return res.status(400).json({ error: "El identificador de la cita no es válido." });
+  }
+
+  try {
+    const resultado = await sequelize.transaction(async (transaction) => {
+      const solicitud = await Cita.findByPk(citaId, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!solicitud) return { estado: "no-encontrada" };
+      if (!["Solicitud de cita", "Solicitud de reprogramación"].includes(solicitud.estado)) {
+        return { estado: "conflicto" };
+      }
+
+      await bloquearOdontologo(solicitud.odontologo_id, transaction);
+      const citaExistente = await buscarCitaMismoHorario({
+        fecha: solicitud.fecha,
+        horaInicio: solicitud.hora_inicio,
+        odontologoId: solicitud.odontologo_id,
+        doctor: solicitud.doctor,
+        excluirId: solicitud.id,
+        transaction,
+      });
+      if (citaExistente) return { estado: "horario-ocupado" };
+
+      await solicitud.update({
+        estado: "Confirmada",
+        token_respuesta: solicitud.token_respuesta || generarTokenRespuesta(),
+      }, { transaction });
+      await Notificacion.create({
+        titulo: "Cita confirmada por la clínica",
+        mensaje: `Tu cita para el ${String(solicitud.fecha).slice(0, 10)} a las ${String(solicitud.hora_inicio).slice(0, 5)} fue confirmada.`,
+        tipo: "cita_confirmada_por_recepcion",
+        canal: "app",
+        paciente_id: solicitud.paciente_id,
+        cita_id: solicitud.id,
+        fecha_programada: solicitud.fecha,
+      }, { transaction });
+
+      return { estado: "aprobada", cita: solicitud };
+    });
+
+    if (resultado.estado === "no-encontrada") {
+      return res.status(404).json({ error: "Cita no encontrada." });
+    }
+    if (resultado.estado === "conflicto") {
+      return res.status(409).json({ error: "La solicitud ya fue atendida o no está pendiente." });
+    }
+    if (resultado.estado === "horario-ocupado") {
+      return res.status(409).json({ error: "Ese odontólogo ya tiene una cita en la fecha y hora seleccionadas." });
+    }
+    res.json({ cita: resultado.cita, mensaje: "La solicitud fue aprobada y la cita quedó confirmada." });
+  } catch (error) {
+    console.error("Appointment request approval failed:", error);
+    res.status(500).json({ error: "No se pudo aprobar la solicitud de cita." });
+  }
+};
+
 export const actualizarCita = async (req, res) => {
   try {
     const cita = await Cita.findByPk(req.params.id);
@@ -123,6 +253,12 @@ export const actualizarCita = async (req, res) => {
       const odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
       if (!odontologo || (cita.odontologo_id !== odontologo.id && cita.doctor !== odontologo.nombre)) {
         return res.status(403).json({ error: "No puedes modificar esta cita." });
+      }
+      if (
+        ["Solicitud de cita", "Solicitud de reprogramación"].includes(cita.estado) &&
+        req.body.estado === "Confirmada"
+      ) {
+        return res.status(403).json({ error: "La solicitud debe ser aprobada por recepción." });
       }
     }
     const datos = { ...req.body };
@@ -138,7 +274,39 @@ export const actualizarCita = async (req, res) => {
       if (!odontologo) return res.status(400).json({ error: "Odontólogo no encontrado." });
       datos.doctor = odontologo.nombre;
     }
-    await cita.update(datos);
+    const fecha = datos.fecha || cita.fecha;
+    const horaInicio = datos.hora_inicio || cita.hora_inicio;
+    const horaFin = obtenerHoraFinCita(
+      horaInicio,
+      datos.hora_fin || (datos.hora_inicio ? "" : cita.hora_fin),
+    );
+    if (!horaFin) {
+      return res.status(400).json({ error: "Indica una hora de inicio válida y una hora de fin posterior, si corresponde." });
+    }
+    const odontologoId = datos.odontologo_id ?? cita.odontologo_id;
+    const doctor = datos.doctor || cita.doctor;
+    datos.fecha = fecha;
+    datos.hora_inicio = normalizarHora(horaInicio);
+    datos.hora_fin = horaFin;
+    datos.odontologo_id = odontologoId;
+    datos.doctor = doctor;
+    const resultado = await sequelize.transaction(async (transaction) => {
+      await bloquearOdontologo(odontologoId, transaction);
+      const citaExistente = await buscarCitaMismoHorario({
+        fecha,
+        horaInicio,
+        odontologoId,
+        doctor,
+        excluirId: cita.id,
+        transaction,
+      });
+      if (citaExistente) return false;
+      await cita.update(datos, { transaction });
+      return true;
+    });
+    if (!resultado) {
+      return res.status(409).json({ error: "Ese odontólogo ya tiene una cita en la fecha y hora seleccionadas." });
+    }
     const citaConPaciente = await Cita.findByPk(cita.id, {
       include: [{ model: Paciente }],
     });

@@ -21,6 +21,7 @@ import {
 } from "../utils/citas";
 
 import GraficoIngresosSemanales from "../components/GraficoIngresosSemanales";
+import SolicitudesCitasPacientes from "../components/SolicitudesCitasPacientes";
 
 const iconos = {
   calendar: (
@@ -502,6 +503,10 @@ export default function Inicio({ setView }) {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="mb-6">
+        <SolicitudesCitasPacientes citas={citas} onApproved={cargarDatos} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
