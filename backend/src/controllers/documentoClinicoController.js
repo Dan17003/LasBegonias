@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { DocumentoClinico } from "../models/index.js";
+import { DocumentoClinico, Paciente } from "../models/index.js";
 import { validarAccesoPaciente } from "./historiaController.js";
 
 const DIRECTORIO_ARCHIVOS = path.resolve(
@@ -12,7 +12,7 @@ const DIRECTORIO_ARCHIVOS = path.resolve(
 const TIPOS_DOCUMENTO = new Set(["consentimiento", "prescripcion", "radiografia", "otro"]);
 const METADATOS_PUBLICOS = [
   "id", "tipo", "nombre", "mime_type", "tamano", "descripcion",
-  "fecha_documento", "creado_en",
+  "fecha_documento", "creado_en", "visible_para_paciente",
 ];
 
 const obtenerExtensionSegura = (file) => {
@@ -169,5 +169,64 @@ export const obtenerArchivoClinico = async (req, res) => {
   } catch (error) {
     console.error("Clinical document retrieval failed", { operation: "read" });
     res.status(500).json({ error: "No se pudo abrir el archivo clínico." });
+  }
+};
+
+export const obtenerArchivoAutorizadoPaciente = async (req, res) => {
+  try {
+    const paciente = await Paciente.findOne({ where: { usuario_id: req.user.id } });
+    if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
+    const documento = await DocumentoClinico.findOne({
+      where: {
+        id: req.params.documentoId,
+        paciente_id: paciente.id,
+        visible_para_paciente: true,
+      },
+    });
+    if (!documento || !esNombreInternoValido(documento.url)) {
+      return res.status(404).json({ error: "Documento no encontrado." });
+    }
+
+    const rutaArchivo = path.join(DIRECTORIO_ARCHIVOS, documento.url);
+    res.set({
+      "Content-Type": documento.mime_type,
+      "Content-Disposition": "inline",
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Security-Policy": "sandbox",
+    });
+    res.sendFile(rutaArchivo, (error) => {
+      if (error && !res.headersSent) {
+        console.error("Patient clinical document retrieval failed");
+        res.status(error.statusCode === 404 ? 404 : 500).json({
+          error: error.statusCode === 404 ? "El archivo ya no está disponible." : "No se pudo abrir el archivo.",
+        });
+      }
+    });
+  } catch (error) {
+    console.error("Patient clinical document retrieval failed");
+    res.status(500).json({ error: "No se pudo abrir el documento." });
+  }
+};
+
+export const actualizarVisibilidadDocumentoPaciente = async (req, res) => {
+  try {
+    const patientId = Number(req.params.id);
+    if (!Number.isSafeInteger(patientId) || patientId < 1 || typeof req.body.visible_para_paciente !== "boolean") {
+      return res.status(400).json({ error: "Indica un paciente y un valor de visibilidad válido." });
+    }
+    const { paciente, odontologo } = await validarAccesoPaciente(req, patientId);
+    if (!odontologo) return res.status(403).json({ error: "No tienes acceso a este paciente." });
+    if (!paciente) return res.status(404).json({ error: "Paciente no encontrado." });
+    const documento = await DocumentoClinico.findOne({
+      where: { id: req.params.documentoId, paciente_id: paciente.id },
+    });
+    if (!documento) return res.status(404).json({ error: "Documento no encontrado." });
+
+    await documento.update({ visible_para_paciente: req.body.visible_para_paciente });
+    res.json({ id: documento.id, visible_para_paciente: documento.visible_para_paciente });
+  } catch (error) {
+    console.error("Clinical document visibility update failed");
+    res.status(500).json({ error: "No se pudo actualizar la autorización del documento." });
   }
 };

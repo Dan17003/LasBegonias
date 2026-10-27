@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { Cita, Notificacion, Paciente } from "../models/index.js";
+import { notificarPersonal } from "./notificacionPersonalService.js";
 
 export const generarTokenRespuesta = () => crypto.randomBytes(24).toString("hex");
 
@@ -52,6 +53,15 @@ export const registrarRespuestaPaciente = async ({ citaId, token, accion }) => {
     paciente_id: cita.paciente_id,
     cita_id: cita.id,
     fecha_programada: cita.fecha,
+  });
+  await notificarPersonal({
+    titulo: accion === "confirmar" ? "Paciente confirmó su asistencia" : "Paciente canceló su cita",
+    mensaje: `${pacienteNombre || "El paciente"} ${accionTexto} su cita del ${String(cita.fecha).slice(0, 10)} a las ${String(cita.hora_inicio).substring(0, 5)}.`,
+    tipo: accion === "confirmar" ? "respuesta_confirmada" : "respuesta_cancelada",
+    pacienteId: cita.paciente_id,
+    citaId: cita.id,
+    roles: ["recepcionista", "admin"],
+    odontologoId: cita.odontologo_id,
   });
 
   return {

@@ -82,6 +82,7 @@ export default function HistoriaClinica({ pacienteId, volver }) {
   };
 
   const paciente = datos.paciente;
+  const declaracionPaciente = perfilForm.antecedentes_medicos?.declaracion_paciente;
   const citasOrdenadas = useMemo(
     () => [...citas].sort((a, b) =>
       `${b.fecha || ""}T${b.hora_inicio || ""}`.localeCompare(`${a.fecha || ""}T${a.hora_inicio || ""}`),
@@ -227,6 +228,31 @@ export default function HistoriaClinica({ pacienteId, volver }) {
           <h3 className="text-sm font-bold text-cyan-950">Información clínica general del paciente</h3>
           <p className="mt-1 text-xs leading-relaxed text-cyan-900">Los antecedentes médicos y datos generales se guardan en su perfil y se mantienen entre consultas. En “Atenciones” registra solo los cambios y hallazgos propios de cada visita.</p>
         </div>
+
+        {declaracionPaciente && <section className="rounded-2xl border border-teal-200 bg-teal-50/70 p-5">
+          <div className="mb-3 border-b border-teal-200 pb-3">
+            <h3 className="text-base font-bold text-teal-950">Antecedentes declarados por el paciente</h3>
+            <p className="mt-1 text-xs text-teal-800">
+              Esta declaración está vinculada a la ficha del paciente; no reemplaza tus observaciones profesionales.
+            </p>
+            {declaracionPaciente.consentimiento_veracidad?.aceptado && <p className="mt-1 text-xs font-semibold text-teal-900">
+              El paciente confirmó la veracidad el {new Date(declaracionPaciente.consentimiento_veracidad.aceptado_en).toLocaleString("es-PE")}.
+            </p>}
+          </div>
+          <dl className="grid gap-3 sm:grid-cols-2">
+            {[
+              ["enfermedades", "Enfermedades y condiciones"],
+              ["alergias", "Alergias"],
+              ["medicamentos_actuales", "Medicamentos actuales"],
+              ["antecedentes_familiares", "Antecedentes familiares"],
+              ["antecedentes_odontologicos", "Antecedentes odontológicos"],
+              ["habitos", "Hábitos de salud bucal"],
+            ].map(([campo, etiqueta]) => <div key={campo}>
+              <dt className="text-[10px] font-bold uppercase tracking-wide text-teal-800">{etiqueta}</dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{declaracionPaciente[campo] || "No declarado"}</dd>
+            </div>)}
+          </dl>
+        </section>}
 
         <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
           <h3 className="mb-4 text-base font-bold text-slate-800">Motivo y antecedentes médicos</h3>

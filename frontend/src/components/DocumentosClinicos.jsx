@@ -247,6 +247,26 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
     }
   };
 
+  const cambiarVisibilidadPaciente = async (documento) => {
+    setError("");
+    setMensaje("");
+    try {
+      const visible_para_paciente = !documento.visible_para_paciente;
+      await api.put(
+        `/historia/pacientes/${pacienteId}/documentos/${documento.id}/visibilidad-paciente`,
+        { visible_para_paciente },
+      );
+      setDocumentos((actuales) => actuales.map((item) =>
+        item.id === documento.id ? { ...item, visible_para_paciente } : item
+      ));
+      setMensaje(visible_para_paciente
+        ? "Documento habilitado para consulta del paciente."
+        : "Se retiró el acceso del paciente a este documento.");
+    } catch (err) {
+      setError(err.response?.data?.error || "No se pudo actualizar la autorización del documento.");
+    }
+  };
+
   const subir = async (event) => {
     event.preventDefault();
     const guardado = await guardarArchivo(archivo, seccion, descripcion);
@@ -495,10 +515,15 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
                     {!documento.archivoDisponible && <p className="mt-1 text-xs text-amber-700">Este registro antiguo no tiene un archivo adjunto en el sistema.</p>}
                   </div>
                 </div>
-                {documento.archivoDisponible && <div className="flex shrink-0 gap-2 sm:pl-4">
+                <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pl-4">
+                  {documento.archivoDisponible && <button type="button" onClick={() => cambiarVisibilidadPaciente(documento)} className={`rounded-lg px-3 py-2 text-xs font-bold ${documento.visible_para_paciente ? "bg-emerald-50 text-emerald-800 hover:bg-emerald-100" : "border border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                    {documento.visible_para_paciente ? "Deshabilitar acceso del paciente" : "Habilitar para el paciente"}
+                  </button>}
+                  {documento.archivoDisponible && <>
                   <button type="button" onClick={() => previsualizar(documento)} disabled={abriendo === documento.id} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50">{abriendo === documento.id ? "Abriendo…" : "Ver"}</button>
                   <button type="button" onClick={() => descargar(documento)} disabled={abriendo === documento.id} className="rounded-lg bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-100 disabled:opacity-50">Descargar</button>
-                </div>}
+                  </>}
+                </div>
               </li>
             ))}
           </ul>

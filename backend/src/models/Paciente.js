@@ -36,6 +36,30 @@ const Paciente = sequelize.define(
     sexo: {
       type: DataTypes.STRING,
     },
+    direccion: {
+      type: DataTypes.STRING,
+    },
+    distrito: {
+      type: DataTypes.STRING,
+    },
+    ocupacion: {
+      type: DataTypes.STRING,
+    },
+    estado_civil: {
+      type: DataTypes.STRING,
+    },
+    contacto_emergencia: {
+      type: DataTypes.STRING,
+    },
+    telefono_emergencia: {
+      type: DataTypes.STRING,
+    },
+    parentesco_emergencia: {
+      type: DataTypes.STRING,
+    },
+    observaciones: {
+      type: DataTypes.TEXT,
+    },
   },
   {
     tableName: "pacientes",

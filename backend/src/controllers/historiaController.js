@@ -225,7 +225,17 @@ export const guardarPerfilHistoria = async (req, res) => {
       return out;
     }, {});
     let perfil = await HistoriaClinicaPerfil.findOne({ where: { paciente_id: paciente.id } });
-    if (perfil) await perfil.update({ ...datos, actualizado_por: odontologo.id });
+    if (perfil) {
+      if (datos.antecedentes_medicos && typeof datos.antecedentes_medicos === "object") {
+        datos.antecedentes_medicos = {
+          ...datos.antecedentes_medicos,
+          ...(perfil.antecedentes_medicos?.declaracion_paciente
+            ? { declaracion_paciente: perfil.antecedentes_medicos.declaracion_paciente }
+            : {}),
+        };
+      }
+      await perfil.update({ ...datos, actualizado_por: odontologo.id });
+    }
     else perfil = await HistoriaClinicaPerfil.create({ ...datos, paciente_id: paciente.id, creado_por: odontologo.id, actualizado_por: odontologo.id });
     res.json(perfil);
   } catch (error) { res.status(400).json({ error: error.message }); }
@@ -330,9 +340,12 @@ export const registrarAtencion = async (req, res) => {
 
     const {
       fecha, motivo_consulta, antecedentes, evaluacion, hallazgos, diagnostico, procedimiento,
-      tratamiento, evolucion, indicaciones, observaciones, cita_id,
+      tratamiento, evolucion, evolucion_visible_para_paciente, indicaciones, observaciones, cita_id,
       diagnosticos = [], procedimientos = [], planesTratamiento = [],
     } = req.body;
+    if (evolucion_visible_para_paciente !== undefined && typeof evolucion_visible_para_paciente !== "boolean") {
+      return res.status(400).json({ error: "La autorización de visibilidad de la evolución no es válida." });
+    }
     if (typeof motivo_consulta !== "string" || !motivo_consulta.trim()) {
       return res.status(400).json({ error: "El motivo de consulta es obligatorio." });
     }
@@ -391,6 +404,7 @@ export const registrarAtencion = async (req, res) => {
         procedimiento: typeof procedimiento === "string" ? procedimiento.trim() || null : null,
         tratamiento,
         evolucion: typeof evolucion === "string" ? evolucion.trim() || null : null,
+        evolucion_visible_para_paciente: evolucion_visible_para_paciente === true,
         indicaciones: typeof indicaciones === "string" ? indicaciones.trim() || null : null,
         observaciones,
       }, { transaction });

@@ -1,9 +1,60 @@
 import { useState, useEffect, useMemo } from "react";
 import api from "../services/api";
 import { corregirEncoding } from "../utils/texto";
+import SolicitudesCitasPacientes from "../components/SolicitudesCitasPacientes";
+
+const HORAS_TIMELINE = ["8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM"];
+
+const timelineAFechaValor = (hora) => {
+  const horaNum = hora.split(":")[0];
+  const sufijoAmPm = hora.split(" ")[1];
+  let hora24 = Number(horaNum);
+  if (sufijoAmPm === "PM" && horaNum !== "12") hora24 += 12;
+  else if (sufijoAmPm === "AM" && horaNum === "12") hora24 = 0;
+  return `${String(hora24).padStart(2, "0")}:00:00`;
+};
+
+const normalizarHoraAgenda = (hora) => {
+  if (!hora) return "";
+  const [horas = "00", minutos = "00"] = String(hora).split(":");
+  return `${String(Number(horas)).padStart(2, "0")}:${String(Number(minutos)).padStart(2, "0")}:00`;
+};
+
+const minutosDesdeHoraAgenda = (hora) => {
+  if (!hora) return null;
+  const [horas = "0", minutos = "0"] = String(hora).split(":");
+  const total = Number(horas) * 60 + Number(minutos);
+  return Number.isFinite(total) ? total : null;
+};
+
+const fechaCitaCoincide = (fechaCita, fechaFormulario) =>
+  Boolean(fechaCita && fechaFormulario && String(fechaCita).slice(0, 10) === String(fechaFormulario).slice(0, 10));
+
+const citaBloqueaHorarioInicio = (cita, { fecha, horaInicio, odontologoId, doctor, excluirId }) => {
+  if (excluirId && cita.id === excluirId) return false;
+  if (cita.estado === "Cancelada") return false;
+  if (!fechaCitaCoincide(cita.fecha, fecha)) return false;
+
+  const inicioCita = minutosDesdeHoraAgenda(normalizarHoraAgenda(cita.hora_inicio));
+  const finCita = minutosDesdeHoraAgenda(normalizarHoraAgenda(cita.hora_fin || "23:59:59"));
+  const inicioSlot = minutosDesdeHoraAgenda(normalizarHoraAgenda(horaInicio));
+  const finSlot = inicioSlot !== null ? inicioSlot + 60 : null;
+
+  if (inicioCita === null || finCita === null || inicioSlot === null || finSlot === null) {
+    return false;
+  }
+
+  const solapaHorario = inicioSlot < finCita && finSlot > inicioCita;
+  if (!solapaHorario) return false;
+
+  if (odontologoId && String(cita.odontologo_id) === String(odontologoId)) return true;
+  if (doctor && cita.doctor === doctor) return true;
+  return false;
+};
 
 export default function Agenda() {
   const esOdontologo = localStorage.getItem("rol")?.toLowerCase() === "odontologo";
+  const puedeAprobarSolicitudes = ["recepcionista", "admin"].includes(localStorage.getItem("rol")?.toLowerCase());
   const [view, setView] = useState("dia");
   const [selectedDoctor, setSelectedDoctor] = useState("Todos");
   const [showModal, setShowModal] = useState(false);
@@ -123,7 +174,24 @@ export default function Agenda() {
     obtenerOdontologos();
   }, []);
 
-  const horasTimeline = ["8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM"];
+  const horasDisponiblesInicio = useMemo(() => {
+    const { fecha, odontologo_id, doctor } = formCita;
+    if (!fecha || !odontologo_id) return [];
+
+    const excluirId = editandoCita?.id;
+    return HORAS_TIMELINE.filter((hora) => {
+      const valor = timelineAFechaValor(hora);
+      return !citas.some((cita) =>
+        citaBloqueaHorarioInicio(cita, {
+          fecha,
+          horaInicio: valor,
+          odontologoId: odontologo_id,
+          doctor,
+          excluirId,
+        }),
+      );
+    });
+  }, [citas, editandoCita?.id, formCita.doctor, formCita.fecha, formCita.odontologo_id]);
 
   // Función para cambiar la fecha según la vista
   const cambiarFecha = (dias) => {
@@ -241,7 +309,7 @@ export default function Agenda() {
       odontologo_id: formCita.odontologo_id ? Number(formCita.odontologo_id) : undefined,
       fecha: formCita.fecha,
       hora_inicio: formCita.hora_inicio,
-      hora_fin: formCita.hora_fin,
+      ...(formCita.hora_fin ? { hora_fin: formCita.hora_fin } : {}),
       motivo: formCita.motivo,
       doctor: formCita.doctor,
       nota_cita: formCita.nota_cita.trim() || null,
@@ -306,6 +374,20 @@ export default function Agenda() {
         </div>
       </div>
 
+      {puedeAprobarSolicitudes && (
+        <details className="mb-3 rounded-xl border border-amber-200 bg-amber-50/70 shadow-sm">
+          <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-bold text-slate-700 [&::-webkit-details-marker]:hidden">
+            <span>Solicitudes de pacientes</span>
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] text-amber-800">
+              {citas.filter((cita) => ["Solicitud de cita", "Solicitud de reprogramación"].includes(cita.estado)).length} pendiente(s) · Mostrar
+            </span>
+          </summary>
+          <div className="border-t border-amber-200 p-3">
+            <SolicitudesCitasPacientes citas={citas} onApproved={obtenerCitas} compact />
+          </div>
+        </details>
+      )}
+
       <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-4 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
           <button 
@@ -367,7 +449,7 @@ export default function Agenda() {
             </div>
 
             <div className="relative divide-y divide-slate-100">
-              {horasTimeline.map((hora) => {
+              {HORAS_TIMELINE.map((hora) => {
                 const prefixHora = hora.split(":")[0];
                 const sufijoAmPm = hora.split(" ")[1];
 
@@ -548,9 +630,39 @@ export default function Agenda() {
                     setFormCita({
                       ...formCita,
                       fecha: e.target.value,
+                      hora_inicio: "",
+                      hora_fin: "",
                     })
                   }
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Asignar Odontólogo</label>
+                <select
+                  required
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#11B9BB] outline-none font-medium text-slate-700"
+                  value={String(formCita.odontologo_id || "")}
+                  onChange={(e) =>
+                    setFormCita((actual) => {
+                      const odontologo = doctoresDisponibles.find((doc) => String(doc.id) === e.target.value);
+                      return {
+                        ...actual,
+                        odontologo_id: e.target.value,
+                        doctor: odontologo?.nombre || "",
+                        hora_inicio: "",
+                        hora_fin: "",
+                      };
+                    })
+                  }
+                >
+                  <option value="">Seleccionar odontólogo</option>
+                  {doctoresDisponibles.map((doc) => (
+                    <option key={doc.id} value={doc.id}>
+                      {doc.nombre} — {doc.especialidad}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -561,7 +673,8 @@ export default function Agenda() {
 
                   <select
                     required
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
+                    disabled={!formCita.fecha || !formCita.odontologo_id}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm disabled:cursor-not-allowed disabled:opacity-60"
                     value={formCita.hora_inicio}
                     onChange={(e) =>
                       setFormCita({
@@ -570,31 +683,31 @@ export default function Agenda() {
                       })
                     }
                   >
-                    <option value="">Seleccionar hora</option>
-                    {horasTimeline.map((hora) => {
-                      const horaNum = hora.split(":")[0];
-                      const sufijoAmPm = hora.split(" ")[1];
-                      let hora24 = Number(horaNum);
-                      if (sufijoAmPm === "PM" && horaNum !== "12") {
-                        hora24 += 12;
-                      } else if (sufijoAmPm === "AM" && horaNum === "12") {
-                        hora24 = 0;
-                      }
-                      return (
-                        <option key={hora} value={`${String(hora24).padStart(2, "0")}:00:00`}>
-                          {hora}
-                        </option>
-                      );
-                    })}
+                    <option value="">
+                      {!formCita.fecha || !formCita.odontologo_id
+                        ? "Selecciona fecha y odontólogo"
+                        : horasDisponiblesInicio.length === 0
+                          ? "Sin horarios disponibles"
+                          : "Seleccionar hora"}
+                    </option>
+                    {horasDisponiblesInicio.map((hora) => (
+                      <option key={hora} value={timelineAFechaValor(hora)}>
+                        {hora}
+                      </option>
+                    ))}
                   </select>
+                  {formCita.fecha && formCita.odontologo_id && (
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Solo se muestran horarios libres para el odontólogo en la fecha elegida.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-400 mb-1">
-                    Hora Fin
+                    Hora Fin (opcional)
                   </label>
 
                   <select
-                    required
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm"
                     value={formCita.hora_fin}
                     onChange={(e) =>
@@ -605,21 +718,11 @@ export default function Agenda() {
                     }
                   >
                     <option value="">Seleccionar hora</option>
-                    {horasTimeline.map((hora) => {
-                      const horaNum = hora.split(":")[0];
-                      const sufijoAmPm = hora.split(" ")[1];
-                      let hora24 = Number(horaNum);
-                      if (sufijoAmPm === "PM" && horaNum !== "12") {
-                        hora24 += 12;
-                      } else if (sufijoAmPm === "AM" && horaNum === "12") {
-                        hora24 = 0;
-                      }
-                      return (
-                        <option key={hora} value={`${String(hora24).padStart(2, "0")}:00:00`}>
-                          {hora}
-                        </option>
-                      );
-                    })}
+                    {HORAS_TIMELINE.map((hora) => (
+                      <option key={hora} value={timelineAFechaValor(hora)}>
+                        {hora}
+                      </option>
+                    ))}
                   </select>
                 </div>
 

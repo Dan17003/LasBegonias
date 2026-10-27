@@ -22,6 +22,7 @@ import {
   retirarServicioSolicitado,
 } from "../controllers/servicioSolicitadoController.js";
 import {
+  actualizarVisibilidadDocumentoPaciente,
   listarDocumentosClinicos,
   obtenerArchivoClinico,
   subirDocumentoClinico,
@@ -52,6 +53,7 @@ router.put("/pacientes/:id/perfil", guardarPerfilHistoria);
 router.get("/pacientes/:id/documentos", requireOdontologist, listarDocumentosClinicos);
 router.post("/pacientes/:id/documentos", requireOdontologist, cargarArchivoClinico, subirDocumentoClinico);
 router.get("/pacientes/:id/documentos/:documentoId/archivo", requireOdontologist, obtenerArchivoClinico);
+router.put("/pacientes/:id/documentos/:documentoId/visibilidad-paciente", requireOdontologist, actualizarVisibilidadDocumentoPaciente);
 
 router.get("/pacientes/:id/servicios-solicitados", requireOdontologist, listarServiciosSolicitados);
 router.post("/pacientes/:id/servicios-solicitados", requireOdontologist, crearServicioSolicitado);

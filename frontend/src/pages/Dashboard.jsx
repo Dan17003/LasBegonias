@@ -13,10 +13,14 @@ import Perfil from "./Perfil";
 import MisPacientes from "./MisPacientes";
 import InicioOdontologo from "./InicioOdontologo";
 import AsistenteOdontologo from "./AsistenteOdontologo";
+import PortalPaciente from "./PortalPaciente";
 
 export default function Dashboard({ setIsLogged }) {
+    const esPaciente = localStorage.getItem("rol")?.toLowerCase() === "paciente";
     const [view, setView] = useState("inicio");
     const esOdontologo = localStorage.getItem("rol")?.toLowerCase() === "odontologo";
+
+    if (esPaciente) return <PortalPaciente setIsLogged={setIsLogged} />;
 
     return (
         <div className="flex h-screen bg-slate-100 text-[17px] text-slate-800">

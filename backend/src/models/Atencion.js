@@ -34,6 +34,11 @@ const Atencion = sequelize.define(
     procedimiento: DataTypes.TEXT,
     tratamiento: DataTypes.TEXT,
     evolucion: DataTypes.TEXT,
+    evolucion_visible_para_paciente: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
     indicaciones: DataTypes.TEXT,
     proxima_cita: DataTypes.DATEONLY,
     observaciones: DataTypes.TEXT,

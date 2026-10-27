@@ -13,7 +13,7 @@ const HistoriaClinicaPerfil = sequelize.define("HistoriaClinicaPerfil", {
   examen_intraoral: { type: DataTypes.JSONB, defaultValue: {} },
   antecedentes: { type: DataTypes.TEXT },
   examenes: { type: DataTypes.TEXT },
-  creado_por: { type: DataTypes.INTEGER, allowNull: false },
-  actualizado_por: { type: DataTypes.INTEGER, allowNull: false },
+  creado_por: { type: DataTypes.INTEGER, allowNull: true },
+  actualizado_por: { type: DataTypes.INTEGER, allowNull: true },
 }, { tableName: "historias_clinicas_perfiles", timestamps: true, createdAt: "creado_en", updatedAt: "actualizado_en" });
 export default HistoriaClinicaPerfil;
