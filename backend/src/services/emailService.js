@@ -5,6 +5,11 @@ dotenv.config();
 
 let transporter;
 
+export const estaConfiguradoCorreo = () => {
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER } = process.env;
+  return Boolean(SMTP_HOST && SMTP_PORT && SMTP_USER && process.env.SMTP_PASS?.replace(/\s/g, ""));
+};
+
 const getTransporter = () => {
   if (transporter) {
     return transporter;

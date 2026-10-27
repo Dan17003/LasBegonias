@@ -17,7 +17,14 @@ const timelineAFechaValor = (hora) => {
 const normalizarHoraAgenda = (hora) => {
   if (!hora) return "";
   const [horas = "00", minutos = "00"] = String(hora).split(":");
-  return `${horas.padStart(2, "0")}:${minutos.padStart(2, "0")}:00`;
+  return `${String(Number(horas)).padStart(2, "0")}:${String(Number(minutos)).padStart(2, "0")}:00`;
+};
+
+const minutosDesdeHoraAgenda = (hora) => {
+  if (!hora) return null;
+  const [horas = "0", minutos = "0"] = String(hora).split(":");
+  const total = Number(horas) * 60 + Number(minutos);
+  return Number.isFinite(total) ? total : null;
 };
 
 const fechaCitaCoincide = (fechaCita, fechaFormulario) =>
@@ -27,7 +34,19 @@ const citaBloqueaHorarioInicio = (cita, { fecha, horaInicio, odontologoId, docto
   if (excluirId && cita.id === excluirId) return false;
   if (cita.estado === "Cancelada") return false;
   if (!fechaCitaCoincide(cita.fecha, fecha)) return false;
-  if (normalizarHoraAgenda(cita.hora_inicio) !== normalizarHoraAgenda(horaInicio)) return false;
+
+  const inicioCita = minutosDesdeHoraAgenda(normalizarHoraAgenda(cita.hora_inicio));
+  const finCita = minutosDesdeHoraAgenda(normalizarHoraAgenda(cita.hora_fin || "23:59:59"));
+  const inicioSlot = minutosDesdeHoraAgenda(normalizarHoraAgenda(horaInicio));
+  const finSlot = inicioSlot !== null ? inicioSlot + 60 : null;
+
+  if (inicioCita === null || finCita === null || inicioSlot === null || finSlot === null) {
+    return false;
+  }
+
+  const solapaHorario = inicioSlot < finCita && finSlot > inicioCita;
+  if (!solapaHorario) return false;
+
   if (odontologoId && String(cita.odontologo_id) === String(odontologoId)) return true;
   if (doctor && cita.doctor === doctor) return true;
   return false;

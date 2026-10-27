@@ -11,6 +11,7 @@ import AtencionDiagnostico from "./AtencionDiagnostico.js";
 import OdontogramaPieza from "./OdontogramaPieza.js";
 import OdontogramaCambio from "./OdontogramaCambio.js";
 import HistoriaClinicaPerfil from "./HistoriaClinicaPerfil.js";
+import HistoriaAntecedenteCambio from "./HistoriaAntecedenteCambio.js";
 import HistoriaMedicamento from "./HistoriaMedicamento.js";
 import HistoriaAlergia from "./HistoriaAlergia.js";
 import AntecedenteOdontologico from "./AntecedenteOdontologico.js";
@@ -27,10 +28,13 @@ import ServicioSolicitado from "./ServicioSolicitado.js";
 import PresupuestoDetalle from "./PresupuestoDetalle.js";
 import RespuestaPresupuestoPaciente from "./RespuestaPresupuestoPaciente.js";
 import SolicitudPagoPaciente from "./SolicitudPagoPaciente.js";
+import PasswordResetToken from "./PasswordResetToken.js";
 
 
 Paciente.belongsTo(Usuario, { foreignKey: "usuario_id" });
 Usuario.hasOne(Paciente, { foreignKey: "usuario_id" });
+Notificacion.belongsTo(Usuario, { foreignKey: "usuario_id" });
+Usuario.hasMany(Notificacion, { foreignKey: "usuario_id" });
 Odontologo.belongsTo(Usuario, { foreignKey: "usuario_id" });
 Usuario.hasOne(Odontologo, { foreignKey: "usuario_id" });
 
@@ -154,6 +158,8 @@ const historiaModels = [
 ];
 HistoriaClinicaPerfil.belongsTo(Paciente, { foreignKey: "paciente_id" });
 Paciente.hasOne(HistoriaClinicaPerfil, { foreignKey: "paciente_id" });
+HistoriaAntecedenteCambio.belongsTo(Paciente, { foreignKey: "paciente_id" });
+Paciente.hasMany(HistoriaAntecedenteCambio, { foreignKey: "paciente_id" });
 historiaModels.forEach((Model) => {
   Model.belongsTo(Paciente, { foreignKey: "paciente_id" });
   Paciente.hasMany(Model, { foreignKey: "paciente_id" });
@@ -165,9 +171,10 @@ Atencion.hasMany(ProcedimientoRealizado, { foreignKey: "atencion_id", as: "proce
 
 export {
   sequelize, Usuario, Paciente, Cita, Presupuesto, Pago, Odontologo, Notificacion,
-  Atencion, AtencionDiagnostico, OdontogramaPieza, OdontogramaCambio, HistoriaClinicaPerfil, HistoriaMedicamento, HistoriaAlergia,
+  Atencion, AtencionDiagnostico, OdontogramaPieza, OdontogramaCambio, HistoriaClinicaPerfil, HistoriaAntecedenteCambio, HistoriaMedicamento, HistoriaAlergia,
   AntecedenteOdontologico, PeriodontogramaEvaluacion, PeriodontogramaMedicion, HistoriaDiagnostico, HistoriaDiagnosticoCambio, PlanTratamiento,
   ProcedimientoRealizado, Consentimiento, DocumentoClinico,
   Servicio, ServicioSolicitado, PresupuestoDetalle,
   RespuestaPresupuestoPaciente, SolicitudPagoPaciente,
+  PasswordResetToken,
 };

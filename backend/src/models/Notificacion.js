@@ -4,6 +4,10 @@ import sequelize from "../config/db.js";
 const Notificacion = sequelize.define(
   "Notificacion",
   {
+    usuario_id: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     titulo: {
       type: DataTypes.STRING,
       allowNull: false,

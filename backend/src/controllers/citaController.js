@@ -10,6 +10,7 @@ import {
   registrarRespuestaPaciente,
 } from "../services/respuestaCitaService.js";
 import { esEmailValido } from "../utils/email.js";
+import { notificarPersonal } from "../services/notificacionPersonalService.js";
 
 const FORMATO_HORA = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
 
@@ -36,11 +37,10 @@ export const obtenerHoraFinCita = (horaInicio, horaFin) => {
   return `${String(Math.floor(fin / 3600)).padStart(2, "0")}:${String(Math.floor((fin % 3600) / 60)).padStart(2, "0")}:00`;
 };
 
-const buscarCitaMismoHorario = ({ fecha, horaInicio, odontologoId, doctor, excluirId, transaction }) =>
-  Cita.findOne({
+const buscarCitaMismoHorario = async ({ fecha, horaInicio, odontologoId, doctor, excluirId, transaction }) => {
+  const citas = await Cita.findAll({
     where: {
       fecha,
-      hora_inicio: normalizarHora(horaInicio),
       estado: { [Op.ne]: "Cancelada" },
       ...(excluirId ? { id: { [Op.ne]: excluirId } } : {}),
       [Op.or]: [
@@ -51,6 +51,16 @@ const buscarCitaMismoHorario = ({ fecha, horaInicio, odontologoId, doctor, exclu
     transaction,
     lock: transaction?.LOCK?.UPDATE,
   });
+
+  const nuevoInicio = horaEnSegundos(normalizarHora(horaInicio));
+  const nuevoFin = Math.min(nuevoInicio + 3600, 24 * 3600);
+
+  return citas.find((cita) => {
+    const inicioExistente = horaEnSegundos(normalizarHora(String(cita.hora_inicio || "00:00:00")));
+    const finExistente = horaEnSegundos(normalizarHora(String(cita.hora_fin || "23:59:59")));
+    return nuevoInicio < finExistente && nuevoFin > inicioExistente;
+  }) || null;
+};
 
 const bloquearOdontologo = (odontologoId, transaction) => {
   if (!odontologoId) return Promise.resolve();
@@ -236,6 +246,14 @@ export const aprobarSolicitudCita = async (req, res) => {
     if (resultado.estado === "horario-ocupado") {
       return res.status(409).json({ error: "Ese odontólogo ya tiene una cita en la fecha y hora seleccionadas." });
     }
+    await notificarPersonal({
+      titulo: "Solicitud de cita confirmada",
+      mensaje: `La solicitud de cita del ${String(resultado.cita.fecha).slice(0, 10)} a las ${String(resultado.cita.hora_inicio).slice(0, 5)} fue confirmada por recepción.`,
+      tipo: "solicitud_cita_confirmada",
+      pacienteId: resultado.cita.paciente_id,
+      citaId: resultado.cita.id,
+      odontologoId: resultado.cita.odontologo_id,
+    });
     res.json({ cita: resultado.cita, mensaje: "La solicitud fue aprobada y la cita quedó confirmada." });
   } catch (error) {
     console.error("Appointment request approval failed:", error);

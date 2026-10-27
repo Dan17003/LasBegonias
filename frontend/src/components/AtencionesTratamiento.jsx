@@ -39,6 +39,7 @@ const inicialAtencion = () => ({
   planesTratamiento: [{ titulo: "", descripcion: "", diagnostico_id: "", prioridad: "media", fecha_prevista: "" }],
   procedimientos: [{ descripcion: "", pieza: "", plan_tratamiento_id: "", completar_plan: false }],
   evolucion: "",
+  evolucion_visible_para_paciente: false,
   indicaciones: "",
 });
 
@@ -128,6 +129,7 @@ export default function AtencionesTratamiento({ pacienteId, atenciones = [], cit
         antecedentes: form.antecedentes,
         hallazgos: form.hallazgos,
         evolucion: form.evolucion,
+        evolucion_visible_para_paciente: form.evolucion_visible_para_paciente,
         indicaciones: form.indicaciones,
         diagnosticos: [
           ...form.diagnosticosSeleccionados.map((diagnostico_id) => ({ diagnostico_id })),
@@ -269,6 +271,15 @@ export default function AtencionesTratamiento({ pacienteId, atenciones = [], cit
           <div className="grid gap-3 sm:grid-cols-2">
             <Campo label="Evolución clínica"><textarea rows={3} maxLength={4000} value={form.evolucion} onChange={(event) => actualizar("evolucion", event.target.value)} placeholder="Respuesta y evolución durante la atención." className={control} /></Campo>
             <Campo label="Indicaciones para el paciente"><textarea rows={3} maxLength={4000} value={form.indicaciones} onChange={(event) => actualizar("indicaciones", event.target.value)} placeholder="Cuidados, recomendaciones o alertas posteriores." className={control} /></Campo>
+            <label className="flex items-start gap-2 rounded-lg border border-cyan-100 bg-cyan-50/60 p-3 text-xs text-cyan-950 sm:col-span-2">
+              <input
+                type="checkbox"
+                checked={form.evolucion_visible_para_paciente}
+                onChange={(event) => actualizar("evolucion_visible_para_paciente", event.target.checked)}
+                className="mt-0.5 accent-teal-600"
+              />
+              <span>Autorizar que la evolución clínica de esta atención aparezca en el expediente del paciente.</span>
+            </label>
           </div>
         </section>
 

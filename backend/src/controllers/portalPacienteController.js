@@ -1,16 +1,29 @@
 import { Op } from "sequelize";
+import bcrypt from "bcrypt";
 import {
   Cita,
   DocumentoClinico,
+  AntecedenteOdontologico,
+  HistoriaAlergia,
+  HistoriaAntecedenteCambio,
+  HistoriaClinicaPerfil,
+  HistoriaDiagnostico,
+  HistoriaMedicamento,
   Notificacion,
+  Atencion,
   Odontologo,
   Paciente,
   Pago,
+  PlanTratamiento,
+  ProcedimientoRealizado,
   Presupuesto,
   PresupuestoDetalle,
   Servicio,
   Usuario,
+  sequelize,
 } from "../models/index.js";
+import { AiServiceError, responderConsultaPaciente } from "../services/odontologoAiService.js";
+import { notificarPersonal } from "../services/notificacionPersonalService.js";
 
 const CAMPOS_EDITABLES = [
   "nombres", "apellidos", "telefono", "email", "fecha_nacimiento", "sexo",
@@ -191,6 +204,8 @@ export const actualizarPerfilPaciente = async (req, res) => {
   try {
     const paciente = await obtenerPacienteActual(req);
     if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
+    const usuario = await Usuario.findByPk(req.user.id);
+    if (!usuario) return res.status(404).json({ error: "No se encontró la cuenta del paciente." });
 
     const cambios = {};
     for (const campo of CAMPOS_EDITABLES) {
@@ -202,20 +217,74 @@ export const actualizarPerfilPaciente = async (req, res) => {
     if (cambios.nombres !== undefined && !cambios.nombres) {
       return res.status(400).json({ error: "Los nombres son obligatorios." });
     }
-    if (cambios.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cambios.email)) {
-      return res.status(400).json({ error: "Ingrese un correo de contacto válido." });
+    if (cambios.email !== undefined) {
+      cambios.email = String(cambios.email || "").trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cambios.email)) {
+        return res.status(400).json({ error: "Ingresa un correo electrónico válido." });
+      }
     }
 
-    await paciente.update(cambios);
+    await sequelize.transaction(async (transaction) => {
+      if (cambios.email && cambios.email !== String(usuario.email || "").toLowerCase()) {
+        const usuarioConCorreo = await Usuario.findOne({
+          where: { email: cambios.email },
+          transaction,
+        });
+        if (usuarioConCorreo && usuarioConCorreo.id !== usuario.id) {
+          const error = new Error("Ese correo electrónico ya está asociado a otra cuenta.");
+          error.status = 409;
+          throw error;
+        }
+      }
+
+      await paciente.update(cambios, { transaction });
+      await usuario.update({
+        ...(cambios.email !== undefined ? { email: cambios.email } : {}),
+        ...(cambios.nombres !== undefined || cambios.apellidos !== undefined
+          ? { nombre: `${cambios.nombres ?? paciente.nombres} ${cambios.apellidos ?? paciente.apellidos ?? ""}`.trim() }
+          : {}),
+      }, { transaction });
+    });
     res.set("Cache-Control", "private, no-store");
-    res.json({ paciente: serializarPerfilPaciente(paciente) });
+    res.json({
+      paciente: serializarPerfilPaciente(paciente),
+      emailAcceso: cambios.email ?? usuario.email,
+    });
   } catch (error) {
+    if (error.name === "SequelizeUniqueConstraintError" || error.status === 409) {
+      return res.status(409).json({ error: "Ese correo electrónico ya está asociado a otra cuenta." });
+    }
     console.error("Patient profile update failed:", error);
     res.status(error.name === "SequelizeValidationError" ? 400 : 500).json({
       error: error.name === "SequelizeValidationError"
         ? "Verifique los datos ingresados."
         : "No se pudo actualizar el perfil.",
     });
+  }
+};
+
+export const cambiarContrasenaPaciente = async (req, res) => {
+  try {
+    const { contrasenaActual, nuevaContrasena } = req.body || {};
+    if (typeof contrasenaActual !== "string" || !contrasenaActual ||
+      typeof nuevaContrasena !== "string" || nuevaContrasena.length < 8) {
+      return res.status(400).json({ error: "Ingresa tu contraseña actual y una nueva contraseña de al menos 8 caracteres." });
+    }
+
+    const usuario = await Usuario.findByPk(req.user.id);
+    if (!usuario) return res.status(404).json({ error: "No se encontró la cuenta del paciente." });
+    const coincide = await bcrypt.compare(contrasenaActual, usuario.password);
+    if (!coincide) return res.status(400).json({ error: "La contraseña actual es incorrecta." });
+    if (await bcrypt.compare(nuevaContrasena, usuario.password)) {
+      return res.status(400).json({ error: "La nueva contraseña debe ser distinta a la actual." });
+    }
+
+    usuario.password = await bcrypt.hash(nuevaContrasena, 10);
+    await usuario.save();
+    res.json({ message: "La contraseña se actualizó correctamente." });
+  } catch (error) {
+    console.error("Patient password update failed:", error);
+    res.status(500).json({ error: "No se pudo actualizar la contraseña." });
   }
 };
 
@@ -275,6 +344,15 @@ export const solicitarCitaPaciente = async (req, res) => {
       `Recibimos tu solicitud para el ${fecha} a las ${horaInicio}. La clínica debe confirmar la disponibilidad.`,
       cita.id,
     );
+    await notificarPersonal({
+      titulo: "Nueva solicitud de cita",
+      mensaje: `${paciente.nombres} ${paciente.apellidos || ""} solicitó ${servicio.nombre} para el ${fecha} a las ${horaInicio}.`,
+      tipo: "solicitud_cita_paciente",
+      pacienteId: paciente.id,
+      citaId: cita.id,
+      roles: ["recepcionista", "admin"],
+      odontologoId: odontologo?.id,
+    });
     res.status(201).json({
       cita,
       mensaje: "Solicitud enviada. La fecha y hora quedan pendientes de confirmación por la clínica.",
@@ -299,6 +377,15 @@ export const actualizarCitaPaciente = async (req, res) => {
     if (accion === "cancelar") {
       await cita.update({ estado: "Cancelada" });
       await crearNotificacionPaciente(paciente.id, "Cita cancelada", `Tu cita del ${cita.fecha} fue cancelada.`, cita.id);
+      await notificarPersonal({
+        titulo: "Cita cancelada por paciente",
+        mensaje: `${paciente.nombres} ${paciente.apellidos || ""} canceló la cita del ${cita.fecha} a las ${String(cita.hora_inicio).slice(0, 5)}.`,
+        tipo: "cita_cancelada_paciente",
+        pacienteId: paciente.id,
+        citaId: cita.id,
+        roles: ["recepcionista", "admin"],
+        odontologoId: cita.odontologo_id,
+      });
       return res.json({ cita, mensaje: "La cita se canceló." });
     }
     if (accion !== "reprogramar" || !fechaISOValida(fecha) ||
@@ -324,6 +411,15 @@ export const actualizarCitaPaciente = async (req, res) => {
       `Tu solicitud para el ${fecha} a las ${horaInicio} está pendiente de confirmación por la clínica.`,
       cita.id,
     );
+    await notificarPersonal({
+      titulo: "Solicitud de reprogramación",
+      mensaje: `${paciente.nombres} ${paciente.apellidos || ""} solicitó cambiar su cita al ${fecha} a las ${horaInicio}.`,
+      tipo: "reprogramacion_cita_paciente",
+      pacienteId: paciente.id,
+      citaId: cita.id,
+      roles: ["recepcionista", "admin"],
+      odontologoId: cita.odontologo_id,
+    });
     res.json({ cita, mensaje: "La reprogramación quedó pendiente de confirmación por la clínica." });
   } catch (error) {
     console.error("Patient appointment update failed:", error);
@@ -358,7 +454,7 @@ export const listarNotificacionesPaciente = async (req, res) => {
     const paciente = await obtenerPacienteActual(req);
     if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
     const notificaciones = await Notificacion.findAll({
-      where: { paciente_id: paciente.id },
+      where: { paciente_id: paciente.id, usuario_id: null },
       attributes: ["id", "titulo", "mensaje", "tipo", "leida", "creado_en", "cita_id"],
       order: [["creado_en", "DESC"]],
       limit: 100,
@@ -377,7 +473,7 @@ export const marcarNotificacionPacienteLeida = async (req, res) => {
     if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
     const [actualizadas] = await Notificacion.update(
       { leida: true },
-      { where: { id: req.params.id, paciente_id: paciente.id, leida: false } },
+      { where: { id: req.params.id, paciente_id: paciente.id, usuario_id: null, leida: false } },
     );
     if (!actualizadas) return res.status(404).json({ error: "Notificación no encontrada." });
     res.json({ message: "Notificación marcada como leída." });
@@ -419,37 +515,31 @@ export const responderPreguntaPaciente = async (req, res) => {
   try {
     const paciente = await obtenerPacienteActual(req);
     if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
-    const pregunta = typeof req.body.mensaje === "string" ? req.body.mensaje.trim().slice(0, 500) : "";
+    const pregunta = typeof req.body?.mensaje === "string" ? req.body.mensaje.trim() : "";
     if (!pregunta) return res.status(400).json({ error: "Escribe una pregunta." });
+    if (pregunta.length > 500) return res.status(400).json({ error: "La pregunta no puede superar los 500 caracteres." });
     const catalogo = await Servicio.findAll({
       where: { activo: true },
       attributes: ["nombre", "categoria", "precio", "moneda"],
       order: [["categoria", "ASC"], ["nombre", "ASC"]],
+      limit: 100,
     });
-    const normalizada = pregunta.toLocaleLowerCase("es");
-    let respuesta;
-    if (/(horario|hora|abren|abierto|cierran)/.test(normalizada)) {
-      respuesta = "No tengo un horario de atención confirmado en el sistema. Comunícate con recepción para verificarlo.";
-    } else if (/(precio|cuesta|costo|tarifa)/.test(normalizada)) {
-      const servicios = catalogo.filter((servicio) =>
-        normalizada.includes(servicio.nombre.toLocaleLowerCase("es")) ||
-        normalizada.includes(servicio.categoria.toLocaleLowerCase("es"))
-      );
-      respuesta = servicios.length
-        ? servicios.slice(0, 8).map((servicio) => `${servicio.nombre}: ${servicio.moneda} ${servicio.precio}`).join("\n")
-        : `Hay ${catalogo.length} servicios en el catálogo. Indica el nombre o categoría del servicio para consultar el precio registrado.`;
-    } else if (/(servicio|tratamiento|limpieza|consulta|implante|ortodoncia)/.test(normalizada)) {
-      respuesta = catalogo.length
-        ? `Servicios disponibles: ${catalogo.slice(0, 12).map(({ nombre }) => nombre).join(", ")}${catalogo.length > 12 ? " y otros." : "."}`
-        : "No hay servicios publicados en este momento. Comunícate con recepción.";
-    } else if (/(cita|reserv|reprogram|cancel)/.test(normalizada)) {
-      respuesta = "Puedes enviar una solicitud de cita o reprogramación desde la sección Citas. La fecha y hora quedan pendientes de confirmación por la clínica.";
-    } else {
-      respuesta = "Puedo orientarte sobre servicios y precios publicados, citas y cómo contactar con la clínica. Para dudas clínicas o información que no esté publicada, consulta directamente con el equipo odontológico.";
-    }
+    const respuesta = await responderConsultaPaciente({
+      catalogo: catalogo.map(({ nombre, categoria, precio, moneda }) => ({
+        nombre: String(nombre || "").slice(0, 160),
+        categoria: String(categoria || "").slice(0, 100),
+        precio: String(precio ?? ""),
+        moneda: String(moneda || "PEN").slice(0, 3),
+      })),
+      message: pregunta,
+    });
+    res.set("Cache-Control", "private, no-store");
     res.json({ respuesta });
   } catch (error) {
-    console.error("Patient assistant request failed:", error);
+    if (error instanceof AiServiceError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Patient assistant request failed", { status: 500 });
     res.status(500).json({ error: "El asistente no está disponible en este momento." });
   }
 };
@@ -460,7 +550,7 @@ export const marcarTodasNotificacionesPacienteLeidas = async (req, res) => {
     if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
     await Notificacion.update(
       { leida: true },
-      { where: { paciente_id: paciente.id, leida: false } },
+      { where: { paciente_id: paciente.id, usuario_id: null, leida: false } },
     );
     res.json({ message: "Notificaciones marcadas como leídas." });
   } catch (error) {
@@ -483,5 +573,198 @@ export const listarDocumentosAutorizadosPaciente = async (req, res) => {
   } catch (error) {
     console.error("Patient documents read failed:", error);
     res.status(500).json({ error: "No se pudieron cargar los documentos autorizados." });
+  }
+};
+
+export const obtenerExpedientePaciente = async (req, res) => {
+  try {
+    const paciente = await obtenerPacienteActual(req);
+    if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
+
+    const [perfil, alergias, medicamentos, antecedentesOdontologicos, atenciones, planes, documentos, historial] = await Promise.all([
+      HistoriaClinicaPerfil.findOne({ where: { paciente_id: paciente.id } }),
+      HistoriaAlergia.findAll({
+        where: { paciente_id: paciente.id },
+        attributes: ["sustancia", "reaccion", "severidad"],
+        order: [["creado_en", "DESC"]],
+      }),
+      HistoriaMedicamento.findAll({
+        where: { paciente_id: paciente.id, activo: true },
+        attributes: ["nombre", "dosis", "frecuencia", "via", "indicaciones"],
+        order: [["creado_en", "DESC"]],
+      }),
+      AntecedenteOdontologico.findAll({
+        where: { paciente_id: paciente.id },
+        attributes: ["tipo", "descripcion", "fecha"],
+        order: [["creado_en", "DESC"]],
+      }),
+      Atencion.findAll({
+        where: { paciente_id: paciente.id },
+        attributes: [
+          "id", "fecha", "motivo_consulta", "diagnostico", "procedimiento",
+          "evolucion", "evolucion_visible_para_paciente", "indicaciones",
+        ],
+        include: [
+          { model: Odontologo, attributes: ["nombre", "especialidad"] },
+          { model: HistoriaDiagnostico, as: "diagnosticos", attributes: ["descripcion", "pieza"], through: { attributes: [] } },
+          { model: ProcedimientoRealizado, as: "procedimientos", attributes: ["descripcion", "pieza"] },
+        ],
+        order: [["fecha", "DESC"], ["id", "DESC"]],
+      }),
+      PlanTratamiento.findAll({
+        where: { paciente_id: paciente.id },
+        attributes: ["id", "titulo", "descripcion", "estado", "prioridad", "fecha_inicio", "fecha_prevista", "fecha_fin"],
+        include: [
+          { model: HistoriaDiagnostico, as: "diagnostico", attributes: ["descripcion", "pieza"] },
+          { model: ProcedimientoRealizado, as: "procedimientosRealizados", attributes: ["id", "descripcion", "fecha"] },
+          { model: Atencion, as: "atencion", attributes: ["indicaciones"] },
+        ],
+        order: [["creado_en", "DESC"]],
+      }),
+      DocumentoClinico.findAll({
+        where: { paciente_id: paciente.id, visible_para_paciente: true },
+        attributes: ["id", "tipo", "nombre", "descripcion", "fecha_documento", "creado_en"],
+        order: [["creado_en", "DESC"]],
+      }),
+      HistoriaAntecedenteCambio.findAll({
+        where: { paciente_id: paciente.id },
+        attributes: ["id", "rol", "campos_modificados", "antes", "despues", "confirmado_en", "creado_en"],
+        order: [["creado_en", "DESC"]],
+        limit: 20,
+      }),
+    ]);
+
+    const antecedentesClinicos = { ...(perfil?.antecedentes_medicos || {}) };
+    const declaracionAnterior = antecedentesClinicos.declaracion_paciente || {};
+    delete antecedentesClinicos.declaracion_paciente;
+    const condiciones = Object.entries(antecedentesClinicos)
+      .filter(([campo, valor]) => !["Alergias", "alergias_cuales"].includes(campo) && typeof valor === "string" && valor.trim())
+      .map(([campo, valor]) => `${campo}: ${valor}`);
+    const alergiasRegistradas = alergias.map(({ sustancia, reaccion }) =>
+      reaccion ? `${sustancia} (${reaccion})` : sustancia,
+    );
+    if (antecedentesClinicos.Alergias === "Sí" && antecedentesClinicos.alergias_cuales) {
+      alergiasRegistradas.push(antecedentesClinicos.alergias_cuales);
+    }
+    const antecedentes = {
+      enfermedades: condiciones.join("\n") || declaracionAnterior.enfermedades || "",
+      alergias: alergiasRegistradas.join("\n") || declaracionAnterior.alergias || "",
+      medicamentos_actuales: medicamentos.map(({ nombre, dosis, frecuencia, via }) =>
+        [nombre, dosis, frecuencia, via].filter(Boolean).join(" · "),
+      ).join("\n") || declaracionAnterior.medicamentos_actuales || "",
+      antecedentes_familiares: declaracionAnterior.antecedentes_familiares || "",
+      antecedentes_odontologicos: antecedentesOdontologicos.map(({ tipo, descripcion, fecha }) =>
+        [tipo, descripcion, fecha].filter(Boolean).join(" · "),
+      ).join("\n") || declaracionAnterior.antecedentes_odontologicos || "",
+      habitos: declaracionAnterior.habitos || "",
+      consentimiento_veracidad: declaracionAnterior.consentimiento_veracidad || null,
+    };
+    res.set("Cache-Control", "private, no-store");
+    res.json({
+      resumen: {
+        ultimaAtencion: atenciones[0]?.fecha || null,
+        totalAtenciones: atenciones.length,
+        totalDocumentos: documentos.length,
+        antecedentesPendientes: !antecedentes.consentimiento_veracidad?.aceptado,
+      },
+      antecedentes,
+      historialAntecedentes: historial,
+      atenciones: atenciones.map((atencion) => ({
+        id: atencion.id,
+        fecha: atencion.fecha,
+        motivo: atencion.motivo_consulta,
+        odontologo: atencion.Odontologo?.nombre || null,
+        diagnosticos: (atencion.diagnosticos || []).map(({ descripcion, pieza }) => ({ descripcion, pieza })),
+        procedimientos: (atencion.procedimientos || []).map(({ descripcion, pieza }) => ({ descripcion, pieza })),
+        diagnosticoHistorico: atencion.diagnostico || null,
+        procedimientoHistorico: atencion.procedimiento || null,
+        evolucion: atencion.evolucion_visible_para_paciente ? atencion.evolucion : null,
+        indicaciones: atencion.indicaciones || null,
+      })),
+      tratamientos: planes.map((plan) => ({
+        id: plan.id,
+        titulo: plan.titulo,
+        descripcion: plan.descripcion,
+        estado: plan.estado,
+        prioridad: plan.prioridad,
+        fechaInicio: plan.fecha_inicio,
+        fechaPrevista: plan.fecha_prevista,
+        fechaFin: plan.fecha_fin,
+        diagnostico: plan.diagnostico?.descripcion || null,
+        indicaciones: plan.atencion?.indicaciones || null,
+        procedimientos: (plan.procedimientosRealizados || []).map(({ id, descripcion, fecha }) => ({ id, descripcion, fecha })),
+      })),
+      documentos,
+    });
+  } catch (error) {
+    console.error("Patient clinical record read failed:", error);
+    res.status(500).json({ error: "No se pudo cargar el expediente clínico." });
+  }
+};
+
+export const otorgarConsentimientoAntecedentesPaciente = async (req, res) => {
+  if (req.body?.aceptado !== true) {
+    return res.status(400).json({ error: "Debes confirmar que leíste tus antecedentes y declaras que son veraces." });
+  }
+  try {
+    const paciente = await obtenerPacienteActual(req);
+    if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
+
+    const resultado = await sequelize.transaction(async (transaction) => {
+      let perfil = await HistoriaClinicaPerfil.findOne({
+        where: { paciente_id: paciente.id },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      const antecedentesMedicos = perfil?.antecedentes_medicos || {};
+      const anterior = antecedentesMedicos.declaracion_paciente || {};
+      if (anterior.consentimiento_veracidad?.aceptado) {
+        return { antecedentes: { ...anterior }, cambio: null };
+      }
+      const confirmadoEn = new Date();
+      const consentimiento = {
+        aceptado: true,
+        version: 1,
+        texto: "Confirmo que he leído los antecedentes clínicos que aparecen aquí y declaro que la información que consta es veraz según mi conocimiento.",
+        aceptado_en: confirmadoEn.toISOString(),
+      };
+      const nuevaDeclaracion = {
+        ...anterior,
+        consentimiento_veracidad: consentimiento,
+      };
+
+      if (perfil) {
+        await perfil.update({
+          antecedentes_medicos: {
+            ...antecedentesMedicos,
+            declaracion_paciente: nuevaDeclaracion,
+          },
+        }, { transaction });
+      } else {
+        perfil = await HistoriaClinicaPerfil.create({
+          paciente_id: paciente.id,
+          antecedentes_medicos: { declaracion_paciente: nuevaDeclaracion },
+          creado_por: null,
+          actualizado_por: null,
+        }, { transaction });
+      }
+
+      const cambio = await HistoriaAntecedenteCambio.create({
+        paciente_id: paciente.id,
+        usuario_id: req.user.id,
+        rol: req.user.rol,
+        campos_modificados: ["consentimiento_veracidad"],
+        antes: { consentimiento_veracidad: "Pendiente" },
+        despues: { consentimiento_veracidad: "Aceptado" },
+        confirmado_en: confirmadoEn,
+      }, { transaction });
+      return { antecedentes: nuevaDeclaracion, cambio };
+    });
+
+    res.set("Cache-Control", "private, no-store");
+    res.json({ antecedentes: resultado.antecedentes, cambio: resultado.cambio });
+  } catch (error) {
+    console.error("Patient clinical antecedent consent failed:", error);
+    res.status(500).json({ error: "No se pudo registrar tu consentimiento." });
   }
 };

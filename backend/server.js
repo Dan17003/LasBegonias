@@ -9,6 +9,7 @@ import {
   Atencion,
   OdontogramaPieza,
   HistoriaClinicaPerfil,
+  HistoriaAntecedenteCambio,
   HistoriaMedicamento,
   HistoriaAlergia,
   AntecedenteOdontologico,
@@ -25,6 +26,7 @@ import {
   PresupuestoDetalle,
   RespuestaPresupuestoPaciente,
   SolicitudPagoPaciente,
+  PasswordResetToken,
 } from "./src/models/index.js";
 import { iniciarRecordatoriosDeCitas } from "./src/services/notificacionService.js";
 import { seedServicios } from "./src/services/servicioSeed.js";
@@ -33,11 +35,16 @@ import { ensurePeriodontogramaEvaluations } from "./src/database/migrations/ensu
 import { ensureAtencionClinicalLinks } from "./src/database/migrations/ensureAtencionClinicalLinks.js";
 import { ensurePacientePerfilCampos } from "./src/database/migrations/ensurePacientePerfilCampos.js";
 import { ensureDocumentoPacienteVisibility } from "./src/database/migrations/ensureDocumentoPacienteVisibility.js";
+import { ensureNotificacionUsuario } from "./src/database/migrations/ensureNotificacionUsuario.js";
+import { ensureAtencionPatientVisibility } from "./src/database/migrations/ensureAtencionPatientVisibility.js";
+import { ensureHistoriaPerfilActorNullable } from "./src/database/migrations/ensureHistoriaPerfilActorNullable.js";
+import { ensurePlanTreatmentDescriptionNullable } from "./src/database/migrations/ensurePlanTreatmentDescriptionNullable.js";
 
 const PORT = 3000;
 
 async function sincronizarBaseDeDatos() {
   await Usuario.sync();
+  await PasswordResetToken.sync();
   await Odontologo.sync();
   await Paciente.sync();
   await Cita.sync();
@@ -45,6 +52,7 @@ async function sincronizarBaseDeDatos() {
   await Atencion.sync();
   await OdontogramaPieza.sync();
   await HistoriaClinicaPerfil.sync();
+  await HistoriaAntecedenteCambio.sync();
   await HistoriaMedicamento.sync();
   await HistoriaAlergia.sync();
   await AntecedenteOdontologico.sync();
@@ -63,9 +71,13 @@ async function sincronizarBaseDeDatos() {
   await SolicitudPagoPaciente.sync();
   await ensurePacientePerfilCampos(sequelize.getQueryInterface());
   await ensureDocumentoPacienteVisibility(sequelize.getQueryInterface());
+  await ensureNotificacionUsuario(sequelize.getQueryInterface());
   await ensureConsentimientoEstado(sequelize.getQueryInterface());
   await ensurePeriodontogramaEvaluations(sequelize.getQueryInterface());
   await ensureAtencionClinicalLinks(sequelize.getQueryInterface());
+  await ensureAtencionPatientVisibility(sequelize.getQueryInterface());
+  await ensureHistoriaPerfilActorNullable(sequelize.getQueryInterface());
+  await ensurePlanTreatmentDescriptionNullable(sequelize.getQueryInterface());
   await seedServicios();
 }
 

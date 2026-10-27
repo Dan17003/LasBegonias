@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api from "../services/api";
 import Sidebar from "../components/Sidebar";
+import ExpedientePaciente from "../components/ExpedientePaciente";
+import { calcularDeudas } from "../utils/finanzas";
 
 const SECCIONES = [
   ["resumen", "Inicio"],
-  ["perfil", "Mis datos"],
+  ["perfil", "Mi perfil"],
   ["citas", "Mis citas"],
-  ["documentos", "Documentos"],
+  ["documentos", "Mi expediente clínico"],
   ["finanzas", "Presupuestos y pagos"],
   ["asistente", "Asistente virtual"],
 ];
@@ -19,7 +21,7 @@ const GRUPOS_PERFIL = [
       ["nombres", "Nombres", true],
       ["apellidos", "Apellidos"],
       ["telefono", "Teléfono", false, "tel"],
-      ["email", "Correo de contacto", false, "email"],
+      ["email", "Correo electrónico y de inicio de sesión", false, "email"],
       ["fecha_nacimiento", "Fecha de nacimiento", false, "date"],
       ["sexo", "Sexo"],
       ["ocupacion", "Ocupación"],
@@ -47,6 +49,13 @@ const GRUPOS_PERFIL = [
 
 const CAMPO = "mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-[#11B9BB] focus:ring-2 focus:ring-[#11B9BB]/20";
 const FORM_CITA_INICIAL = { servicio_id: "", odontologo_id: "", fecha: "", hora_inicio: "" };
+const PREGUNTAS_SUGERIDAS = [
+  "¿Qué servicios ofrece la clínica?",
+  "¿Cómo puedo reservar una cita?",
+  "¿Cómo prevenir las caries?",
+  "¿Qué debo hacer si me duelen los dientes?",
+];
+const MENSAJE_BIENVENIDA = "¡Hola! 👋\n\nSoy el asistente virtual de Las Begonias. Puedo ayudarte con información odontológica general y tus citas. ¿Qué necesitas?";
 const fechaActualLocal = () => {
   const hoy = new Date();
   return `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
@@ -62,6 +71,19 @@ const formatoFecha = (fecha) => {
 
 const formatoImporte = (monto, moneda = "PEN") =>
   new Intl.NumberFormat("es-PE", { style: "currency", currency: moneda }).format(Number(monto) || 0);
+
+const ETIQUETAS_METODO_PAGO = {
+  efectivo: "Efectivo",
+  tarjeta: "Tarjeta",
+  transferencia: "Transferencia",
+  cheque: "Cheque",
+};
+
+const ETIQUETAS_TIPO_PAGO = {
+  pago_total: "Pago total",
+  pago_parcial: "Pago parcial",
+  adelanto: "Adelanto",
+};
 
 const nombrePaciente = (paciente) =>
   [paciente?.nombres, paciente?.apellidos].filter(Boolean).join(" ") || "Paciente";
@@ -85,10 +107,10 @@ function MensajeVacio({ children }) {
 export default function PortalPaciente({ setIsLogged }) {
   const [seccion, setSeccion] = useState("resumen");
   const [perfil, setPerfil] = useState(null);
-  const [emailAcceso, setEmailAcceso] = useState("");
   const [citas, setCitas] = useState([]);
   const [catalogo, setCatalogo] = useState({ servicios: [], odontologos: [] });
   const [documentos, setDocumentos] = useState([]);
+  const [expediente, setExpediente] = useState(null);
   const [finanzas, setFinanzas] = useState({ presupuestos: [], pagos: [] });
   const [notificaciones, setNotificaciones] = useState([]);
   const [cargando, setCargando] = useState(true);
@@ -106,24 +128,30 @@ export default function PortalPaciente({ setIsLogged }) {
   const [chat, setChat] = useState([]);
   const [pregunta, setPregunta] = useState("");
   const [consultando, setConsultando] = useState(false);
+  const [errorAsistente, setErrorAsistente] = useState("");
+  const [contrasenas, setContrasenas] = useState({ actual: "", nueva: "", confirmar: "" });
+  const [guardandoContrasena, setGuardandoContrasena] = useState(false);
+  const [errorContrasena, setErrorContrasena] = useState("");
+  const [mensajeContrasena, setMensajeContrasena] = useState("");
+  const chatFinalRef = useRef(null);
 
   const cargarPortal = useCallback(async () => {
     setCargando(true);
     setError("");
     try {
-      const [perfilRes, citasRes, catalogoRes, documentosRes, finanzasRes, notificacionesRes] = await Promise.all([
+      const [perfilRes, citasRes, catalogoRes, expedienteRes, finanzasRes, notificacionesRes] = await Promise.all([
         api.get("/portal-paciente/perfil"),
         api.get("/portal-paciente/citas"),
         api.get("/portal-paciente/catalogo"),
-        api.get("/portal-paciente/documentos"),
+        api.get("/portal-paciente/expediente"),
         api.get("/portal-paciente/finanzas"),
         api.get("/portal-paciente/notificaciones"),
       ]);
-      setPerfil(perfilRes.data.paciente);
-      setEmailAcceso(perfilRes.data.emailAcceso || "");
+      setPerfil({ ...perfilRes.data.paciente, email: perfilRes.data.emailAcceso || perfilRes.data.paciente.email || "" });
       setCitas(citasRes.data);
       setCatalogo(catalogoRes.data);
-      setDocumentos(documentosRes.data);
+      setExpediente(expedienteRes.data);
+      setDocumentos(expedienteRes.data.documentos);
       setFinanzas(finanzasRes.data);
       setNotificaciones(notificacionesRes.data);
     } catch (requestError) {
@@ -212,9 +240,36 @@ export default function PortalPaciente({ setIsLogged }) {
     event.preventDefault();
     await ejecutar(async () => {
       const { data } = await api.put("/portal-paciente/perfil", perfil);
-      setPerfil(data.paciente);
+      setPerfil({ ...data.paciente, email: data.emailAcceso || data.paciente.email || "" });
       localStorage.setItem("nombre", nombrePaciente(data.paciente));
     }, "Tus datos se actualizaron correctamente.");
+  };
+
+  const cambiarContrasena = async (event) => {
+    event.preventDefault();
+    setErrorContrasena("");
+    setMensajeContrasena("");
+    if (contrasenas.nueva.length < 8) {
+      setErrorContrasena("La nueva contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    if (contrasenas.nueva !== contrasenas.confirmar) {
+      setErrorContrasena("La confirmación no coincide con la nueva contraseña.");
+      return;
+    }
+    setGuardandoContrasena(true);
+    try {
+      const { data } = await api.put("/portal-paciente/contrasena", {
+        contrasenaActual: contrasenas.actual,
+        nuevaContrasena: contrasenas.nueva,
+      });
+      setContrasenas({ actual: "", nueva: "", confirmar: "" });
+      setMensajeContrasena(data.message);
+    } catch (requestError) {
+      setErrorContrasena(requestError.response?.data?.error || "No se pudo actualizar la contraseña.");
+    } finally {
+      setGuardandoContrasena(false);
+    }
   };
 
   const solicitarCita = async (event) => {
@@ -264,10 +319,15 @@ export default function PortalPaciente({ setIsLogged }) {
     }
   };
 
-  const enviarPregunta = async (event) => {
-    event.preventDefault();
-    const texto = pregunta.trim();
+  useEffect(() => {
+    chatFinalRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [chat, consultando]);
+
+  const enviarPregunta = async (event, textoPregunta = pregunta) => {
+    event?.preventDefault();
+    const texto = textoPregunta.trim();
     if (!texto || consultando) return;
+    setErrorAsistente("");
     setChat((actual) => [...actual, { autor: "tú", texto }]);
     setPregunta("");
     setConsultando(true);
@@ -275,7 +335,7 @@ export default function PortalPaciente({ setIsLogged }) {
       const { data } = await api.post("/portal-paciente/asistente", { mensaje: texto });
       setChat((actual) => [...actual, { autor: "asistente", texto: data.respuesta }]);
     } catch (requestError) {
-      setError(requestError.response?.data?.error || "El asistente no está disponible.");
+      setErrorAsistente(requestError.response?.data?.error || "El asistente no está disponible.");
     } finally {
       setConsultando(false);
     }
@@ -283,12 +343,25 @@ export default function PortalPaciente({ setIsLogged }) {
 
   const notificacionesNoLeidas = notificaciones.filter((item) => !item.leida).length;
   const citasPendientes = citas.filter((cita) => !["Cancelada", "Atendida"].includes(cita.estado)).length;
-  const saldoPendiente = finanzas.presupuestos.reduce((total, presupuesto) => {
-    const pagado = finanzas.pagos
-      .filter((pago) => pago.presupuesto_id === presupuesto.id)
-      .reduce((subtotal, pago) => subtotal + Number(pago.monto), 0);
-    return total + Math.max(0, Number(presupuesto.monto) - pagado);
-  }, 0);
+  const saldosPendientes = calcularDeudas(
+    [...finanzas.presupuestos].sort((a, b) => Number(a.id) - Number(b.id)),
+    finanzas.pagos,
+  );
+  const resumenPresupuestos = finanzas.presupuestos.map((presupuesto) => {
+    const saldo = saldosPendientes.find((item) => Number(item.presupuesto.id) === Number(presupuesto.id))?.saldo || 0;
+    const monto = Number(presupuesto.monto) || 0;
+    const pagado = Math.min(monto, Math.max(0, monto - saldo));
+    return {
+      presupuesto,
+      monto,
+      pagado,
+      saldo,
+      porcentajePagado: monto > 0 ? Math.min(100, (pagado / monto) * 100) : 0,
+    };
+  });
+  const saldoPendiente = resumenPresupuestos.reduce((total, item) => total + item.saldo, 0);
+  const totalPagado = resumenPresupuestos.reduce((total, item) => total + item.pagado, 0);
+  const totalPagosRegistrados = finanzas.pagos.reduce((total, pago) => total + (Number(pago.monto) || 0), 0);
   const tituloSeccion = SECCIONES.find(([id]) => id === seccion)?.[1];
 
   if (cargando) {
@@ -333,13 +406,13 @@ export default function PortalPaciente({ setIsLogged }) {
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-white/70">Tu espacio clínico</p>
                 <h1 className="mt-2 text-3xl font-black">{nombrePaciente(perfil)}</h1>
                 <p className="mt-2 max-w-2xl text-sm text-white/80">
-                  Consulta tus citas, datos personales, documentos autorizados y movimientos financieros desde un solo lugar.
+                  Consulta tus citas, datos personales, expediente clínico y movimientos financieros desde un solo lugar.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 {[
                   ["Citas pendientes", citasPendientes, "Próximas citas y solicitudes en curso.", "citas"],
-                  ["Documentos", documentos.length, "Archivos habilitados por la clínica.", "documentos"],
+                  ["Expediente clínico", documentos.length, "Antecedentes, atenciones, tratamientos y documentos.", "documentos"],
                   ["Saldo pendiente", formatoImporte(saldoPendiente), "Según pagos confirmados por recepción.", "finanzas"],
                   ["Notificaciones", notificacionesNoLeidas, "Avisos sin leer en tu bandeja.", "resumen"],
                 ].map(([titulo, valor, detalle, destino]) => (
@@ -370,25 +443,26 @@ export default function PortalPaciente({ setIsLogged }) {
 
           {seccion === "perfil" && perfil && (
             <>
-              <div className="mb-2">
-                <h3 className="text-2xl font-bold text-slate-800">Mis datos personales</h3>
-                <p className="mt-1 text-xs text-slate-400">
-                  El DNI y el correo usado para iniciar sesión son de solo lectura. Para corregirlos, contacta con la clínica.
+              <div className="rounded-3xl bg-gradient-to-r from-[#087f81] to-[#11B9BB] p-6 text-white shadow-lg sm:p-8">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-white/70">Tu cuenta</p>
+                <h3 className="mt-2 text-2xl font-black sm:text-3xl">Mi perfil</h3>
+                <p className="mt-2 max-w-2xl text-sm text-white/85">
+                  Mantén actualizados tus datos de contacto y protege tu cuenta con una contraseña segura.
                 </p>
               </div>
+              <p className="text-sm text-slate-500">
+                  El DNI y el correo usado para iniciar sesión son de solo lectura. Para corregirlos, contacta con la clínica.
+              </p>
               <form onSubmit={guardarPerfil} className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <section className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm lg:col-span-2">
-                  <h4 className="border-b border-slate-100 pb-3 font-bold text-slate-800">Identidad y acceso</h4>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="block text-xs font-bold text-slate-400">
-                      DNI
-                      <input value={perfil.dni || ""} readOnly className={`${CAMPO} bg-slate-100`} />
-                    </label>
-                    <label className="block text-xs font-bold text-slate-400">
-                      Correo de inicio de sesión
-                      <input value={emailAcceso} readOnly className={`${CAMPO} bg-slate-100`} />
-                    </label>
+                  <div className="border-b border-slate-100 pb-3">
+                    <h4 className="font-bold text-slate-800">Identidad verificada</h4>
+                    <p className="mt-1 text-xs text-slate-500">El DNI identifica tu ficha y no se puede cambiar desde el portal. Para corregirlo, contacta con recepción.</p>
                   </div>
+                  <label className="block max-w-sm text-xs font-bold text-slate-500">
+                    DNI
+                    <input value={perfil.dni || ""} readOnly className={`${CAMPO} cursor-not-allowed bg-slate-100`} />
+                  </label>
                 </section>
                 {GRUPOS_PERFIL.map(({ titulo, descripcion, campos }) => (
                   <section key={titulo} className="space-y-4 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
@@ -412,11 +486,36 @@ export default function PortalPaciente({ setIsLogged }) {
                 ))}
                 <button
                   disabled={guardando}
-                  className="rounded-xl bg-[#11B9BB] py-3 text-sm font-bold text-white transition hover:bg-[#0ea5a7] disabled:opacity-60 lg:col-span-2"
+                  className="rounded-xl bg-[#11B9BB] py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0ea5a7] disabled:opacity-60 lg:col-span-2"
                 >
                   {guardando ? "Guardando..." : "Guardar mis datos"}
                 </button>
               </form>
+              <section className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
+                <div className="mb-5 border-b border-slate-100 pb-3">
+                  <h4 className="font-bold text-slate-800">Seguridad de la cuenta</h4>
+                  <p className="mt-1 text-xs text-slate-500">Confirma tu contraseña actual para establecer una nueva.</p>
+                </div>
+                <form onSubmit={cambiarContrasena} className="grid gap-4 sm:grid-cols-2">
+                  <label className="text-xs font-bold text-slate-500 sm:col-span-2">
+                    Contraseña actual
+                    <input autoComplete="current-password" type="password" required value={contrasenas.actual} onChange={(event) => setContrasenas((actual) => ({ ...actual, actual: event.target.value }))} className={CAMPO} />
+                  </label>
+                  <label className="text-xs font-bold text-slate-500">
+                    Nueva contraseña
+                    <input autoComplete="new-password" type="password" minLength={8} required value={contrasenas.nueva} onChange={(event) => setContrasenas((actual) => ({ ...actual, nueva: event.target.value }))} className={CAMPO} />
+                  </label>
+                  <label className="text-xs font-bold text-slate-500">
+                    Confirmar nueva contraseña
+                    <input autoComplete="new-password" type="password" minLength={8} required value={contrasenas.confirmar} onChange={(event) => setContrasenas((actual) => ({ ...actual, confirmar: event.target.value }))} className={CAMPO} />
+                  </label>
+                  {errorContrasena && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700 sm:col-span-2">{errorContrasena}</p>}
+                  {mensajeContrasena && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700 sm:col-span-2">{mensajeContrasena}</p>}
+                  <button disabled={guardandoContrasena} className="rounded-xl border border-[#11B9BB] px-5 py-3 text-sm font-bold text-[#087f81] transition hover:bg-cyan-50 disabled:opacity-60 sm:col-span-2 sm:justify-self-start">
+                    {guardandoContrasena ? "Actualizando..." : "Cambiar contraseña"}
+                  </button>
+                </form>
+              </section>
             </>
           )}
 
@@ -440,44 +539,198 @@ export default function PortalPaciente({ setIsLogged }) {
           )}
 
           {seccion === "documentos" && (
-            <Panel titulo="Documentos e información autorizada" descripcion="Aquí solo aparecen documentos que la clínica habilitó expresamente para tu cuenta.">
-              {documentos.length === 0 ? <MensajeVacio>La clínica aún no ha habilitado documentos para consulta.</MensajeVacio> : <ul className="divide-y divide-slate-100">{documentos.map((documento) => <li key={documento.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="text-sm font-semibold text-slate-800">{documento.nombre}</p><p className="text-xs text-slate-500">{documento.tipo} · {formatoFecha(documento.fecha_documento || documento.creado_en)}</p>{documento.descripcion && <p className="mt-1 text-xs text-slate-600">{documento.descripcion}</p>}</div><button type="button" onClick={() => abrirDocumento(documento)} className="rounded-lg border border-cyan-200 px-3 py-2 text-xs font-bold text-[#0e999b] hover:bg-cyan-50">Descargar</button></li>)}</ul>}
-            </Panel>
+            <ExpedientePaciente
+              expediente={expediente}
+              documentos={documentos}
+              perfil={perfil}
+              onAbrirDocumento={abrirDocumento}
+              onActualizado={(antecedentes, cambio) => setExpediente((actual) => ({
+                ...actual,
+                antecedentes: {
+                  ...actual.antecedentes,
+                  consentimiento_veracidad: antecedentes.consentimiento_veracidad,
+                },
+                historialAntecedentes: cambio
+                  ? [cambio, ...(actual.historialAntecedentes || [])]
+                  : actual.historialAntecedentes,
+                resumen: {
+                  ...actual.resumen,
+                  antecedentesPendientes: !antecedentes.consentimiento_veracidad?.aceptado,
+                },
+              }))}
+            />
           )}
 
           {seccion === "finanzas" && (
             <div className="space-y-5">
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-                <p className="text-sm font-semibold text-amber-900">Saldo pendiente según pagos confirmados por la clínica</p>
-                <p className="mt-1 text-2xl font-extrabold text-amber-900">{formatoImporte(finanzas.presupuestos.reduce((total, presupuesto) => {
-                  const pagado = finanzas.pagos
-                    .filter((pago) => pago.presupuesto_id === presupuesto.id)
-                    .reduce((subtotal, pago) => subtotal + Number(pago.monto), 0);
-                  return total + Math.max(0, Number(presupuesto.monto) - pagado);
-                }, 0))}</p>
-                <p className="mt-1 text-xs text-amber-800">Este saldo considera únicamente los pagos registrados por la clínica.</p>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {[
+                  ["Saldo pendiente", saldoPendiente, "Aún por cubrir en tus presupuestos.", "amber"],
+                  ["Total abonado", totalPagado, "Aplicado a los presupuestos registrados.", "teal"],
+                  ["Pagos registrados", totalPagosRegistrados, `${finanzas.pagos.length} movimiento(s) confirmado(s) por la clínica.`, "blue"],
+                ].map(([titulo, monto, detalle, color]) => (
+                  <article
+                    key={titulo}
+                    className={`rounded-2xl border p-5 shadow-sm ${
+                      color === "amber"
+                        ? "border-amber-200 bg-gradient-to-br from-amber-50 to-white"
+                        : color === "teal"
+                          ? "border-teal-100 bg-gradient-to-br from-teal-50 to-white"
+                          : "border-blue-100 bg-gradient-to-br from-blue-50 to-white"
+                    }`}
+                  >
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{titulo}</p>
+                    <p className="mt-2 text-2xl font-black text-slate-800">{formatoImporte(monto)}</p>
+                    <p className="mt-1 text-xs text-slate-500">{detalle}</p>
+                  </article>
+                ))}
               </div>
-              <Panel titulo="Presupuestos" descripcion="Consulta los presupuestos y saldos registrados por la clínica. Para resolver dudas, comunícate con recepción.">
-                {finanzas.presupuestos.length === 0 ? <MensajeVacio>No tienes presupuestos registrados.</MensajeVacio> : <div className="space-y-3">{finanzas.presupuestos.map((presupuesto) => {
-                  const pagado = finanzas.pagos.filter((pago) => pago.presupuesto_id === presupuesto.id).reduce((subtotal, pago) => subtotal + Number(pago.monto), 0);
-                  return <article key={presupuesto.id} className="rounded-xl border border-slate-100 p-4"><p className="font-semibold text-slate-800">{presupuesto.titulo || presupuesto.descripcion}</p><p className="mt-1 text-xs text-slate-500">Vigencia: {formatoFecha(presupuesto.fecha_vigencia)} · Estado: {presupuesto.estado}</p><p className="mt-2 text-lg font-bold text-[#0e999b]">{formatoImporte(presupuesto.monto)}</p><p className="mt-1 text-xs font-semibold text-amber-800">Saldo: {formatoImporte(Math.max(0, Number(presupuesto.monto) - pagado))}</p>{presupuesto.PresupuestoDetalles?.map((detalle) => <p key={detalle.id} className="mt-1 text-xs text-slate-600">{detalle.cantidad} × {detalle.servicio_nombre}</p>)}</article>;
-                })}</div>}
+              <Panel titulo="Mis presupuestos" descripcion="Revisa los servicios, el monto, los abonos y el saldo registrado por la clínica. Para consultas, comunícate con recepción.">
+                {resumenPresupuestos.length === 0 ? <MensajeVacio>No tienes presupuestos registrados.</MensajeVacio> : <div className="grid gap-4 lg:grid-cols-2">{resumenPresupuestos.map(({ presupuesto, monto, pagado, saldo, porcentajePagado }) => (
+                  <article key={presupuesto.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-slate-50/80 px-4 py-4 sm:px-5">
+                      <div className="min-w-0">
+                        <p className="font-bold text-slate-800">{presupuesto.titulo || presupuesto.descripcion}</p>
+                        <p className="mt-1 text-xs text-slate-500">Odontólogo: {presupuesto.doctor || "No especificado"}</p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                        {saldo > 0 ? "Pendiente" : "Pagado"}
+                      </span>
+                    </div>
+                    <div className="space-y-4 p-4 sm:p-5">
+                      <div className="flex flex-wrap justify-between gap-2 text-sm">
+                        <span className="text-slate-500">Monto del presupuesto</span>
+                        <strong className="text-slate-800">{formatoImporte(monto)}</strong>
+                      </div>
+                      <div>
+                        <div className="mb-2 flex justify-between gap-3 text-xs">
+                          <span className="text-slate-500">Abonado: <strong className="text-teal-700">{formatoImporte(pagado)}</strong></span>
+                          <span className={saldo > 0 ? "font-bold text-amber-700" : "font-bold text-teal-700"}>
+                            Saldo: {formatoImporte(saldo)}
+                          </span>
+                        </div>
+                        <div
+                          className="h-2 overflow-hidden rounded-full bg-slate-100"
+                          role="progressbar"
+                          aria-label={`Monto abonado del presupuesto ${presupuesto.titulo || presupuesto.descripcion}`}
+                          aria-valuemin={0}
+                          aria-valuemax={100}
+                          aria-valuenow={Math.round(porcentajePagado)}
+                        >
+                          <div className="h-full rounded-full bg-gradient-to-r from-[#0e999b] to-[#11B9BB] transition-[width]" style={{ width: `${porcentajePagado}%` }} />
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                        <span>Estado: {presupuesto.estado || "Sin estado"}</span>
+                        <span>Vigencia: {formatoFecha(presupuesto.fecha_vigencia)}</span>
+                      </div>
+                      {presupuesto.PresupuestoDetalles?.length > 0 && (
+                        <div className="border-t border-slate-100 pt-3">
+                          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Servicios incluidos</p>
+                          <ul className="space-y-2">
+                            {presupuesto.PresupuestoDetalles.map((detalle) => (
+                              <li key={detalle.id} className="flex justify-between gap-3 text-xs text-slate-600">
+                                <span>{detalle.cantidad} × {detalle.servicio_nombre}</span>
+                                <strong className="shrink-0 text-slate-700">{formatoImporte(detalle.subtotal)}</strong>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}</div>}
               </Panel>
-              <Panel titulo="Pagos registrados por la clínica">
-                {finanzas.pagos.length === 0 ? <MensajeVacio>Aún no hay pagos confirmados registrados.</MensajeVacio> : <ul className="divide-y divide-slate-100">{finanzas.pagos.map((pago) => <li key={pago.id} className="flex justify-between gap-3 py-3 text-sm"><span>{formatoFecha(pago.created_at)} · {pago.metodo}</span><strong>{formatoImporte(pago.monto)}</strong></li>)}</ul>}
+              <Panel titulo="Historial de pagos" descripcion="Movimientos registrados y confirmados por la clínica. El registro de pagos se realiza en recepción.">
+                {finanzas.pagos.length === 0 ? <MensajeVacio>Aún no hay pagos confirmados registrados.</MensajeVacio> : <ul className="divide-y divide-slate-100">{finanzas.pagos.map((pago) => {
+                  const presupuesto = finanzas.presupuestos.find((item) => Number(item.id) === Number(pago.presupuesto_id));
+                  return (
+                    <li key={pago.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800">{ETIQUETAS_TIPO_PAGO[pago.tipo_pago] || "Pago"}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {formatoFecha(pago.created_at)} · {ETIQUETAS_METODO_PAGO[pago.metodo] || "Método no especificado"}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {presupuesto ? `Asociado a: ${presupuesto.titulo || presupuesto.descripcion}` : "Abono registrado en tu ficha"}
+                        </p>
+                      </div>
+                      <strong className="text-base text-teal-700">{formatoImporte(pago.monto)}</strong>
+                    </li>
+                  );
+                })}</ul>}
               </Panel>
             </div>
           )}
 
           {seccion === "asistente" && (
-            <Panel titulo="Asistente virtual" descripcion="Responde con el catálogo publicado y no sustituye la orientación de un profesional.">
-              <div className="mb-4 flex min-h-64 flex-col gap-3 rounded-xl bg-slate-50 p-4" aria-live="polite">
-                {chat.length === 0 && <p className="m-auto max-w-md text-center text-sm text-slate-500">Puedes preguntar por servicios, precios publicados, citas o cómo contactar con la clínica. Para horarios, confirmaciones y dudas clínicas, consulta con recepción o con tu odontólogo.</p>}
-                {chat.map((item, index) => <div key={`${index}-${item.autor}`} className={`max-w-[85%] whitespace-pre-line rounded-2xl px-4 py-3 text-sm ${item.autor === "tú" ? "self-end bg-[#11B9BB] text-white" : "self-start border border-slate-200 bg-white text-slate-700"}`}><span className="mb-1 block text-[10px] font-bold uppercase opacity-70">{item.autor}</span>{item.texto}</div>)}
-                {consultando && <p className="text-xs text-slate-400">Consultando...</p>}
-              </div>
-              <form onSubmit={enviarPregunta} className="flex gap-2"><input maxLength={500} value={pregunta} onChange={(event) => setPregunta(event.target.value)} placeholder="Escribe tu pregunta..." className={`${CAMPO} min-w-0 flex-1`} /><button disabled={consultando || !pregunta.trim()} className="rounded-xl bg-[#11B9BB] px-4 text-sm font-bold text-white disabled:opacity-50">Enviar</button></form>
-            </Panel>
+            <main className="mx-auto flex min-h-[calc(100vh-10rem)] w-full max-w-5xl min-w-0 flex-col">
+              <header className="mb-4">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#0b8f91]">Clínica Las Begonias</p>
+                <h3 className="mt-1 text-xl font-black text-slate-800 sm:text-2xl">Asistente virtual</h3>
+                <p className="mt-1 max-w-2xl text-sm text-slate-500">Información odontológica general, servicios publicados y orientación sobre tus citas.</p>
+              </header>
+              <section className="flex min-h-[480px] flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div className="flex-1 space-y-4 overflow-y-auto p-4 sm:p-6" aria-live="polite">
+                  {chat.length === 0 && (
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-xl" aria-hidden="true">🤖</div>
+                      <div className="whitespace-pre-line rounded-2xl rounded-tl-sm bg-slate-100 px-4 py-3 text-sm leading-relaxed text-slate-700">{MENSAJE_BIENVENIDA}</div>
+                    </div>
+                  )}
+                  {chat.map((item, index) => (
+                    <div key={`${index}-${item.autor}`} className={`flex items-start gap-3 ${item.autor === "tú" ? "justify-end" : ""}`}>
+                      {item.autor !== "tú" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-cyan-50 text-lg" aria-hidden="true">🤖</div>}
+                      <div className={`max-w-[88%] whitespace-pre-line rounded-2xl px-4 py-3 text-sm leading-relaxed sm:max-w-[80%] ${item.autor === "tú" ? "rounded-tr-sm bg-[#11B9BB] text-white" : "rounded-tl-sm bg-slate-100 text-slate-700"}`}>
+                        <span className={`mb-1 block text-[10px] font-bold uppercase tracking-wide ${item.autor === "tú" ? "text-white/75" : "text-slate-500"}`}>{item.autor === "tú" ? "Tú" : "Asistente virtual"}</span>
+                        {item.texto}
+                      </div>
+                      {item.autor === "tú" && <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-lg" aria-hidden="true">🙂</div>}
+                    </div>
+                  ))}
+                  {consultando && <div className="flex items-center gap-3 text-sm text-slate-500"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-50" aria-hidden="true">🤖</div>Preparando una respuesta...</div>}
+                  <div ref={chatFinalRef} />
+                </div>
+
+                {errorAsistente && <p role="alert" className="mx-4 mb-3 rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700 sm:mx-6">{errorAsistente}</p>}
+
+                {chat.length === 0 && (
+                  <div className="px-4 pb-4 sm:px-6">
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-400">Preguntas sugeridas</p>
+                    <div className="flex flex-wrap gap-2">
+                      {PREGUNTAS_SUGERIDAS.map((preguntaSugerida) => (
+                        <button key={preguntaSugerida} type="button" disabled={consultando} onClick={() => enviarPregunta(null, preguntaSugerida)} className="rounded-full border border-slate-200 px-3 py-2 text-left text-xs text-slate-600 transition hover:border-[#11B9BB] hover:bg-cyan-50 disabled:opacity-50">
+                          {preguntaSugerida}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <form onSubmit={enviarPregunta} className="border-t border-slate-100 p-4 sm:p-5">
+                  <div className="flex items-end gap-2">
+                    <textarea
+                      maxLength={500}
+                      rows={2}
+                      value={pregunta}
+                      onChange={(event) => setPregunta(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          enviarPregunta();
+                        }
+                      }}
+                      placeholder="Escribe tu pregunta... (Enter para enviar)"
+                      className="min-h-11 min-w-0 flex-1 resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-[#11B9BB] focus:ring-2 focus:ring-[#11B9BB]/20"
+                    />
+                    <button type="submit" disabled={consultando || !pregunta.trim()} aria-label="Enviar pregunta" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#11B9BB] text-xl font-bold text-white transition hover:bg-[#0b9fa1] disabled:cursor-not-allowed disabled:opacity-40">
+                      ➤
+                    </button>
+                  </div>
+                  <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-400">La información es orientativa y no sustituye la valoración profesional. Ante síntomas intensos, contacta con un profesional de salud.</p>
+                </form>
+              </section>
+            </main>
           )}
         </div>
       </main>

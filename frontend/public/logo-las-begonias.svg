@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
+  <defs>
+    <linearGradient id="aquamarine-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#002B2E"></stop>
+      <stop offset="35%" stop-color="#004D40"></stop>
+      <stop offset="70%" stop-color="#00796B"></stop>
+      <stop offset="100%" stop-color="#004643"></stop>
+    </linearGradient>
+    <linearGradient id="edge-highlight" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#80FFEA" stop-opacity="0.5"></stop>
+      <stop offset="40%" stop-color="#40E0D0" stop-opacity="0.15"></stop>
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.3"></stop>
+    </linearGradient>
+    <filter id="shadow-filter" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#001F24" flood-opacity="0.65"></feDropShadow>
+    </filter>
+    <mask id="logo-mask">
+      <rect x="0" y="0" width="500" height="500" fill="white"></rect>
+      <circle cx="250" cy="180" r="115" fill="none" stroke="black" stroke-width="8"></circle>
+      <circle cx="180" cy="300" r="115" fill="none" stroke="black" stroke-width="8"></circle>
+      <circle cx="320" cy="300" r="115" fill="none" stroke="black" stroke-width="8"></circle>
+    </mask>
+  </defs>
+  <g id="mainGroup" mask="url(#logo-mask)">
+    <circle cx="250" cy="180" r="110" fill="url(#aquamarine-grad)"></circle>
+    <circle cx="180" cy="300" r="110" fill="url(#aquamarine-grad)"></circle>
+    <circle cx="320" cy="300" r="110" fill="url(#aquamarine-grad)"></circle>
+    <circle cx="250" cy="180" r="110" fill="url(#edge-highlight)"></circle>
+    <circle cx="180" cy="300" r="110" fill="url(#edge-highlight)"></circle>
+    <circle cx="320" cy="300" r="110" fill="url(#edge-highlight)"></circle>
+  </g>
+</svg>

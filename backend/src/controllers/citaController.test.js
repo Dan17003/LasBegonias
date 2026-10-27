@@ -28,16 +28,16 @@ test("reception cannot create a second appointment for the same dentist and star
   const originalTransaction = sequelize.transaction;
   const originalPatientFindByPk = Paciente.findByPk;
   const originalOdontologistFindByPk = Odontologo.findByPk;
-  const originalAppointmentFindOne = Cita.findOne;
+  const originalAppointmentFindAll = Cita.findAll;
   const originalAppointmentCreate = Cita.create;
   let query;
   let created = false;
   sequelize.transaction = async (callback) => callback({ LOCK: { UPDATE: "UPDATE" } });
   Paciente.findByPk = async () => ({ id: 7, email: "paciente@example.test" });
   Odontologo.findByPk = async () => ({ id: 3, nombre: "Dra. Ana" });
-  Cita.findOne = async (options) => {
+  Cita.findAll = async (options) => {
     query = options;
-    return { id: 12 };
+    return [{ id: 12, hora_inicio: "10:00:00", hora_fin: "11:00:00" }];
   };
   Cita.create = async () => {
     created = true;
@@ -60,7 +60,7 @@ test("reception cannot create a second appointment for the same dentist and star
     assert.equal(res.statusCode, 409);
     assert.match(res.body.error, /ya tiene una cita/i);
     assert.equal(query.where.fecha, "2026-11-03");
-    assert.equal(query.where.hora_inicio, "10:00:00");
+    assert.equal(query.where.estado[Op.ne], "Cancelada");
     assert.deepEqual(query.where[Op.or], [
       { odontologo_id: 3 },
       { doctor: "Dra. Ana" },
@@ -70,7 +70,7 @@ test("reception cannot create a second appointment for the same dentist and star
     sequelize.transaction = originalTransaction;
     Paciente.findByPk = originalPatientFindByPk;
     Odontologo.findByPk = originalOdontologistFindByPk;
-    Cita.findOne = originalAppointmentFindOne;
+    Cita.findAll = originalAppointmentFindAll;
     Cita.create = originalAppointmentCreate;
   }
 });
@@ -78,7 +78,7 @@ test("reception cannot create a second appointment for the same dentist and star
 test("reception approval confirms a pending appointment and notifies its patient", async () => {
   const originalTransaction = sequelize.transaction;
   const originalFindByPk = Cita.findByPk;
-  const originalFindOne = Cita.findOne;
+  const originalFindAll = Cita.findAll;
   const originalOdontologistFindByPk = Odontologo.findByPk;
   const originalNotificationCreate = Notificacion.create;
   let actualizacion;
@@ -103,7 +103,7 @@ test("reception approval confirms a pending appointment and notifies its patient
     assert.equal(options.lock, "UPDATE");
     return solicitud;
   };
-  Cita.findOne = async () => null;
+  Cita.findAll = async () => [];
   Odontologo.findByPk = async () => ({ id: 3 });
   Notificacion.create = async (datos) => {
     notificacion = datos;
@@ -121,7 +121,7 @@ test("reception approval confirms a pending appointment and notifies its patient
   } finally {
     sequelize.transaction = originalTransaction;
     Cita.findByPk = originalFindByPk;
-    Cita.findOne = originalFindOne;
+    Cita.findAll = originalFindAll;
     Odontologo.findByPk = originalOdontologistFindByPk;
     Notificacion.create = originalNotificationCreate;
   }
