@@ -16,6 +16,11 @@ import portalPacienteRoutes from "./routes/portalPacienteRoutes.js";
 
 const app = express();
 
+app.get("/health", (_req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ status: "ok" });
+});
+
 const originsConfigurados = process.env.CORS_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
 const originsPermitidos = originsConfigurados?.length
   ? originsConfigurados

@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { DocumentoClinico, Paciente } from "../models/index.js";
 import { validarAccesoPaciente } from "./historiaController.js";
-
-const DIRECTORIO_ARCHIVOS = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../uploads/documentos-clinicos",
-);
+import {
+  eliminarArchivoClinico,
+  guardarArchivoClinico,
+  leerArchivoClinico,
+} from "../services/clinicalDocumentStorage.js";
 const TIPOS_DOCUMENTO = new Set(["consentimiento", "prescripcion", "radiografia", "otro"]);
 const METADATOS_PUBLICOS = [
   "id", "tipo", "nombre", "mime_type", "tamano", "descripcion",
@@ -70,13 +67,18 @@ export const listarDocumentosClinicos = async (req, res) => {
       archivoDisponible: esNombreInternoValido(documento.url),
     })));
   } catch (error) {
-    console.error("Clinical document listing failed", { operation: "list" });
+    console.error("Clinical document listing failed", {
+      operation: "list",
+      errorName: error?.name,
+      errorCode: error?.code,
+    });
     res.status(500).json({ error: "No se pudieron cargar los documentos clínicos." });
   }
 };
 
 export const subirDocumentoClinico = async (req, res) => {
-  let rutaArchivo;
+  let nombreInterno;
+  let archivoGuardado = false;
   try {
     const patientId = Number(req.params.id);
     if (!Number.isSafeInteger(patientId) || patientId < 1) {
@@ -99,10 +101,9 @@ export const subirDocumentoClinico = async (req, res) => {
     const nombre = limpiarNombre(req.file.originalname);
     if (!nombre) return res.status(400).json({ error: "El archivo debe tener un nombre válido." });
     const descripcion = limpiarNombre(req.body.descripcion);
-    const nombreInterno = `${randomUUID()}${extension}`;
-    rutaArchivo = path.join(DIRECTORIO_ARCHIVOS, nombreInterno);
-    await mkdir(DIRECTORIO_ARCHIVOS, { recursive: true, mode: 0o700 });
-    await writeFile(rutaArchivo, req.file.buffer, { flag: "wx", mode: 0o600 });
+    nombreInterno = `${randomUUID()}${extension}`;
+    await guardarArchivoClinico(nombreInterno, req.file.buffer, req.file.mimetype);
+    archivoGuardado = true;
 
     const documento = await DocumentoClinico.create({
       paciente_id: paciente.id,
@@ -117,16 +118,24 @@ export const subirDocumentoClinico = async (req, res) => {
     res.set("Cache-Control", "private, no-store");
     res.status(201).json({ ...serializarDocumento(documento), archivoDisponible: true });
   } catch (error) {
-    if (rutaArchivo) {
+    if (archivoGuardado && nombreInterno) {
       try {
-        await unlink(rutaArchivo);
+        await eliminarArchivoClinico(nombreInterno);
       } catch (cleanupError) {
-        if (cleanupError.code !== "ENOENT") {
-          console.error("Clinical document cleanup failed", { operation: "remove-orphaned-upload" });
+        if (cleanupError.code !== "ENOENT" && cleanupError.name !== "NoSuchKey") {
+          console.error("Clinical document cleanup failed", {
+            operation: "remove-orphaned-upload",
+            errorName: cleanupError?.name,
+            errorCode: cleanupError?.code,
+          });
         }
       }
     }
-    console.error("Clinical document upload failed", { operation: "upload" });
+    console.error("Clinical document upload failed", {
+      operation: "upload",
+      errorName: error?.name,
+      errorCode: error?.code,
+    });
     res.status(500).json({ error: "No se pudo guardar el documento clínico." });
   }
 };
@@ -150,7 +159,8 @@ export const obtenerArchivoClinico = async (req, res) => {
       return res.status(404).json({ error: "No se encontró el archivo solicitado." });
     }
 
-    const rutaArchivo = path.join(DIRECTORIO_ARCHIVOS, documento.url);
+    const archivo = await leerArchivoClinico(documento.url);
+    if (!archivo) return res.status(404).json({ error: "El archivo ya no está disponible." });
     res.set({
       "Content-Type": documento.mime_type,
       "Content-Disposition": "inline",
@@ -158,16 +168,13 @@ export const obtenerArchivoClinico = async (req, res) => {
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "sandbox",
     });
-    res.sendFile(rutaArchivo, (error) => {
-      if (error && !res.headersSent) {
-        console.error("Clinical document retrieval failed", { operation: "read" });
-        res.status(error.statusCode === 404 ? 404 : 500).json({
-          error: error.statusCode === 404 ? "El archivo ya no está disponible." : "No se pudo abrir el archivo.",
-        });
-      }
-    });
+    res.send(archivo);
   } catch (error) {
-    console.error("Clinical document retrieval failed", { operation: "read" });
+    console.error("Clinical document retrieval failed", {
+      operation: "read",
+      errorName: error?.name,
+      errorCode: error?.code,
+    });
     res.status(500).json({ error: "No se pudo abrir el archivo clínico." });
   }
 };
@@ -187,7 +194,8 @@ export const obtenerArchivoAutorizadoPaciente = async (req, res) => {
       return res.status(404).json({ error: "Documento no encontrado." });
     }
 
-    const rutaArchivo = path.join(DIRECTORIO_ARCHIVOS, documento.url);
+    const archivo = await leerArchivoClinico(documento.url);
+    if (!archivo) return res.status(404).json({ error: "El archivo ya no está disponible." });
     res.set({
       "Content-Type": documento.mime_type,
       "Content-Disposition": "inline",
@@ -195,16 +203,12 @@ export const obtenerArchivoAutorizadoPaciente = async (req, res) => {
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": "sandbox",
     });
-    res.sendFile(rutaArchivo, (error) => {
-      if (error && !res.headersSent) {
-        console.error("Patient clinical document retrieval failed");
-        res.status(error.statusCode === 404 ? 404 : 500).json({
-          error: error.statusCode === 404 ? "El archivo ya no está disponible." : "No se pudo abrir el archivo.",
-        });
-      }
-    });
+    res.send(archivo);
   } catch (error) {
-    console.error("Patient clinical document retrieval failed");
+    console.error("Patient clinical document retrieval failed", {
+      errorName: error?.name,
+      errorCode: error?.code,
+    });
     res.status(500).json({ error: "No se pudo abrir el documento." });
   }
 };
@@ -226,7 +230,10 @@ export const actualizarVisibilidadDocumentoPaciente = async (req, res) => {
     await documento.update({ visible_para_paciente: req.body.visible_para_paciente });
     res.json({ id: documento.id, visible_para_paciente: documento.visible_para_paciente });
   } catch (error) {
-    console.error("Clinical document visibility update failed");
+    console.error("Clinical document visibility update failed", {
+      errorName: error?.name,
+      errorCode: error?.code,
+    });
     res.status(500).json({ error: "No se pudo actualizar la autorización del documento." });
   }
 };

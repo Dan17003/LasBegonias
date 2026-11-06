@@ -1,0 +1,18 @@
+[Unit]
+Description=Las Begonias API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/lasbegonias/backend
+EnvironmentFile=/etc/lasbegonias/api.env
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

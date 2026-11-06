@@ -1,6 +1,3 @@
-import { unlink } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Op } from "sequelize";
 import {
   AntecedenteOdontologico,
@@ -35,11 +32,7 @@ import {
   sequelize,
 } from "../models/index.js";
 import { esEmailValido } from "../utils/email.js";
-
-const DIRECTORIO_ARCHIVOS_CLINICOS = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../uploads/documentos-clinicos",
-);
+import { eliminarArchivoClinico } from "../services/clinicalDocumentStorage.js";
 const NOMBRE_ARCHIVO_CLINICO = /^[0-9a-f-]{36}\.(pdf|jpg|png|webp)$/;
 
 const rechazarOdontologoAdministrativo = (req, res) => {
@@ -286,9 +279,9 @@ export const eliminarPaciente = async (req, res) => {
     const erroresArchivo = [];
     for (const nombreArchivo of archivosClinicos) {
       try {
-        await unlink(path.join(DIRECTORIO_ARCHIVOS_CLINICOS, nombreArchivo));
+        await eliminarArchivoClinico(nombreArchivo);
       } catch (error) {
-        if (error.code !== "ENOENT") erroresArchivo.push(error);
+        if (error.code !== "ENOENT" && error.name !== "NoSuchKey") erroresArchivo.push(error);
       }
     }
     if (erroresArchivo.length) {

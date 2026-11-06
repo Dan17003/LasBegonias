@@ -39,8 +39,9 @@ import { ensureNotificacionUsuario } from "./src/database/migrations/ensureNotif
 import { ensureAtencionPatientVisibility } from "./src/database/migrations/ensureAtencionPatientVisibility.js";
 import { ensureHistoriaPerfilActorNullable } from "./src/database/migrations/ensureHistoriaPerfilActorNullable.js";
 import { ensurePlanTreatmentDescriptionNullable } from "./src/database/migrations/ensurePlanTreatmentDescriptionNullable.js";
+import { validarAlmacenamientoClinico } from "./src/services/clinicalDocumentStorage.js";
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 async function sincronizarBaseDeDatos() {
   await Usuario.sync();
@@ -81,9 +82,11 @@ async function sincronizarBaseDeDatos() {
   await seedServicios();
 }
 
+validarAlmacenamientoClinico();
+
 sincronizarBaseDeDatos()
   .then(() => {
-    app.listen(PORT, () => {
+    app.listen(PORT, "0.0.0.0", () => {
       console.log(`Servidor en puerto ${PORT}`);
       iniciarRecordatoriosDeCitas();
     });
