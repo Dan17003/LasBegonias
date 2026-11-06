@@ -64,10 +64,10 @@ async function sincronizarBaseDeDatos() {
   await DocumentoClinico.sync();
   await PeriodontogramaEvaluacion.sync();
   await PeriodontogramaMedicion.sync();
-  await Presupuesto.sync({ alter: true });
+  await Presupuesto.sync();
   await Servicio.sync();
   await PresupuestoDetalle.sync();
-  await ServicioSolicitado.sync({ alter: true });
+  await ServicioSolicitado.sync();
   await RespuestaPresupuestoPaciente.sync();
   await SolicitudPagoPaciente.sync();
   await ensurePacientePerfilCampos(sequelize.getQueryInterface());
