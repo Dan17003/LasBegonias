@@ -1,10 +1,12 @@
+import { isDeepStrictEqual } from "node:util";
 import { Op } from "sequelize";
 import {
   Atencion, Cita, Odontologo, OdontogramaPieza, Paciente, HistoriaClinicaPerfil,
   HistoriaMedicamento, HistoriaAlergia, AntecedenteOdontologico,
   HistoriaDiagnostico, HistoriaDiagnosticoCambio, AtencionDiagnostico, PlanTratamiento, ProcedimientoRealizado, Consentimiento,
-  OdontogramaCambio, PeriodontogramaMedicion,
+  OdontogramaCambio, PeriodontogramaMedicion, sequelize,
 } from "../models/index.js";
+import { solicitarNuevaConfirmacionAntecedentes } from "../services/notificacionAntecedentesService.js";
 
 const ESTADOS_PIEZA = ["sana", "caries", "tratamiento", "ausente", "corona", "protesis", "observacion"];
 
@@ -48,6 +50,24 @@ const recursos = {
   procedimientos: { model: ProcedimientoRealizado, required: ["descripcion"], allowed: ["atencion_id", "plan_tratamiento_id", "pieza", "codigo", "descripcion", "fecha", "observaciones"] },
   consentimientos: { model: Consentimiento, required: ["tipo", "estado"], allowed: ["tipo", "estado", "firmado_en", "observaciones"], enums: { estado: ["Pendiente", "Firmado", "Rechazado"] } },
 };
+const recursosAntecedentesPaciente = new Set([
+  "medicamentos",
+  "alergias",
+  "antecedentes-odontologicos",
+]);
+const camposAntecedentesPerfil = [
+  "antecedentes",
+  "antecedentes_medicos",
+  "antecedentes_medicos_otros",
+  "embarazo",
+];
+const quitarDeclaracionPaciente = (antecedentes) => {
+  if (!antecedentes || typeof antecedentes !== "object" || Array.isArray(antecedentes)) return antecedentes;
+  const { declaracion_paciente: _declaracionPaciente, ...resto } = antecedentes;
+  return resto;
+};
+const valorComparableAntecedente = (campo, valor) =>
+  campo === "antecedentes_medicos" ? quitarDeclaracionPaciente(valor || {}) : valor ?? null;
 
 const validarIdPaciente = (value) => /^\d+$/.test(String(value)) && Number(value) > 0;
 const textoOpcionalValido = (value, maxLength) =>
@@ -133,7 +153,22 @@ export const crearHistoriaRecurso = async (req, res) => {
     }
     const datos = Object.fromEntries(config.allowed.filter((field) => req.body[field] !== undefined).map((field) => [field, req.body[field]]));
     Object.assign(datos, { paciente_id: paciente.id, odontologo_id: odontologo.id });
-    const row = await config.model.create(datos);
+    const row = recursosAntecedentesPaciente.has(req.params.recurso)
+      ? await sequelize.transaction(async (transaction) => {
+        const creado = await config.model.create(datos, { transaction });
+        const perfil = await HistoriaClinicaPerfil.findOne({
+          where: { paciente_id: paciente.id },
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        });
+        await solicitarNuevaConfirmacionAntecedentes({
+          pacienteId: paciente.id,
+          perfil,
+          transaction,
+        });
+        return creado;
+      })
+      : await config.model.create(datos);
     res.status(201).json(row);
   } catch (error) { res.status(400).json({ error: error.message }); }
 };
@@ -178,7 +213,22 @@ export const actualizarHistoriaRecurso = async (req, res) => {
     const transaction = await config.model.sequelize.transaction();
     try {
       const estadoAnterior = row.estado;
+      const antecedentesCambiaron =
+        recursosAntecedentesPaciente.has(req.params.recurso) &&
+        Object.entries(datos).some(([campo, valor]) => !isDeepStrictEqual(row.get(campo), valor));
       await row.update(datos, { transaction });
+      if (antecedentesCambiaron) {
+        const perfil = await HistoriaClinicaPerfil.findOne({
+          where: { paciente_id: paciente.id },
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        });
+        await solicitarNuevaConfirmacionAntecedentes({
+          pacienteId: paciente.id,
+          perfil,
+          transaction,
+        });
+      }
       if (req.params.recurso === "diagnosticos" && datos.estado && datos.estado !== estadoAnterior) {
         await HistoriaDiagnosticoCambio.create({
           paciente_id: paciente.id,
@@ -224,19 +274,46 @@ export const guardarPerfilHistoria = async (req, res) => {
       if (req.body[key] !== undefined) out[key] = req.body[key];
       return out;
     }, {});
-    let perfil = await HistoriaClinicaPerfil.findOne({ where: { paciente_id: paciente.id } });
-    if (perfil) {
+    const perfil = await sequelize.transaction(async (transaction) => {
+      let actual = await HistoriaClinicaPerfil.findOne({
+        where: { paciente_id: paciente.id },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
       if (datos.antecedentes_medicos && typeof datos.antecedentes_medicos === "object") {
         datos.antecedentes_medicos = {
           ...datos.antecedentes_medicos,
-          ...(perfil.antecedentes_medicos?.declaracion_paciente
-            ? { declaracion_paciente: perfil.antecedentes_medicos.declaracion_paciente }
+          ...(actual?.antecedentes_medicos?.declaracion_paciente
+            ? { declaracion_paciente: actual.antecedentes_medicos.declaracion_paciente }
             : {}),
         };
       }
-      await perfil.update({ ...datos, actualizado_por: odontologo.id });
-    }
-    else perfil = await HistoriaClinicaPerfil.create({ ...datos, paciente_id: paciente.id, creado_por: odontologo.id, actualizado_por: odontologo.id });
+      const camposModificados = camposAntecedentesPerfil.filter((campo) =>
+        datos[campo] !== undefined &&
+        !isDeepStrictEqual(
+          valorComparableAntecedente(campo, actual?.[campo]),
+          valorComparableAntecedente(campo, datos[campo]),
+        ),
+      );
+      if (actual) {
+        await actual.update({ ...datos, actualizado_por: odontologo.id }, { transaction });
+      } else {
+        actual = await HistoriaClinicaPerfil.create({
+          ...datos,
+          paciente_id: paciente.id,
+          creado_por: odontologo.id,
+          actualizado_por: odontologo.id,
+        }, { transaction });
+      }
+      if (camposModificados.length) {
+        await solicitarNuevaConfirmacionAntecedentes({
+          pacienteId: paciente.id,
+          perfil: actual,
+          transaction,
+        });
+      }
+      return actual;
+    });
     res.json(perfil);
   } catch (error) { res.status(400).json({ error: error.message }); }
 };
@@ -288,6 +365,143 @@ export const listarMisPacientes = async (req, res) => {
       };
     });
     res.json(resultado);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const obtenerResumenInicioOdontologo = async (req, res) => {
+  try {
+    const odontologo = await obtenerOdontologoAutenticado(req);
+    if (!odontologo) return res.status(404).json({ error: "El usuario no tiene perfil odontológico." });
+
+    const whereCitas = {
+      [Op.or]: [
+        { odontologo_id: odontologo.id },
+        { doctor: odontologo.nombre },
+      ],
+    };
+    const [citas, atencionesRelacionadas] = await Promise.all([
+      Cita.findAll({
+        attributes: ["id", "paciente_id", "fecha", "hora_inicio", "motivo", "estado"],
+        where: whereCitas,
+        include: [{ model: Paciente, attributes: ["id", "nombres", "apellidos"] }],
+        order: [["fecha", "ASC"], ["hora_inicio", "ASC"]],
+      }),
+      Atencion.findAll({
+        attributes: ["paciente_id", "cita_id"],
+        where: { odontologo_id: odontologo.id },
+      }),
+    ]);
+
+    const pacienteIds = [...new Set([
+      ...citas.map((cita) => cita.paciente_id),
+      ...atencionesRelacionadas.map((atencion) => atencion.paciente_id),
+    ])];
+    if (!pacienteIds.length) {
+      return res.json({
+        pacientesRelacionados: 0,
+        citasHoy: [],
+        citasProgramadas: 0,
+        pendientesClinicos: { historiasPorCompletar: 0, atencionesPorRegistrar: 0 },
+        actividadClinica: [],
+      });
+    }
+
+    const fechaHoy = new Date().toISOString().slice(0, 10);
+    const fechaDia = (value) => value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+    const atencionesConCita = new Set(
+      atencionesRelacionadas
+        .map((atencion) => atencion.cita_id)
+        .filter((citaId) => citaId !== null && citaId !== undefined)
+        .map(String),
+    );
+    const [perfiles, atencionesRecientes, perfilesActualizados, cambiosOdontograma] = await Promise.all([
+      HistoriaClinicaPerfil.findAll({
+        attributes: ["paciente_id"],
+        where: { paciente_id: pacienteIds },
+      }),
+      Atencion.findAll({
+        attributes: ["id", "paciente_id", "fecha", "motivo_consulta", "creado_en"],
+        where: { odontologo_id: odontologo.id },
+        include: [{ model: Paciente, attributes: ["id", "nombres", "apellidos"] }],
+        order: [["creado_en", "DESC"]],
+        limit: 10,
+      }),
+      HistoriaClinicaPerfil.findAll({
+        attributes: ["paciente_id", "creado_en", "actualizado_en"],
+        where: {
+          paciente_id: pacienteIds,
+          [Op.or]: [
+            { actualizado_por: odontologo.id },
+            { creado_por: odontologo.id },
+          ],
+        },
+        include: [{ model: Paciente, attributes: ["id", "nombres", "apellidos"] }],
+        order: [["actualizado_en", "DESC"]],
+        limit: 10,
+      }),
+      OdontogramaCambio.findAll({
+        attributes: ["id", "paciente_id", "pieza", "creado_en"],
+        where: { paciente_id: pacienteIds, odontologo_id: odontologo.id },
+        include: [{ model: Paciente, attributes: ["id", "nombres", "apellidos"] }],
+        order: [["creado_en", "DESC"]],
+        limit: 10,
+      }),
+    ]);
+    const perfilesCompletados = new Set(perfiles.map((perfil) => String(perfil.paciente_id)));
+    const citasDeHoy = citas.filter((cita) => fechaDia(cita.fecha) === fechaHoy
+      && cita.estado?.toLowerCase() !== "cancelada");
+    const citasProgramadas = citas.filter((cita) => fechaDia(cita.fecha) >= fechaHoy
+      && !["cancelada", "atendida"].includes(cita.estado?.toLowerCase()));
+    const atencionesPorRegistrar = citas.filter((cita) =>
+      fechaDia(cita.fecha) <= fechaHoy
+      && cita.estado?.toLowerCase() === "atendida"
+      && !atencionesConCita.has(String(cita.id)),
+    ).length;
+    const obtenerPaciente = (registro) => {
+      const paciente = registro.Paciente;
+      return paciente
+        ? `${paciente.nombres || ""} ${paciente.apellidos || ""}`.trim()
+        : "Paciente";
+    };
+    const actividadClinica = [
+      ...atencionesRecientes.map((atencion) => ({
+        id: `atencion-${atencion.id}`,
+        tipo: "Consulta registrada",
+        paciente: obtenerPaciente(atencion),
+        detalle: atencion.motivo_consulta,
+        fecha: atencion.creado_en || atencion.fecha,
+      })),
+      ...perfilesActualizados.map((perfil) => ({
+        id: `historia-${perfil.paciente_id}`,
+        tipo: "Historia clínica actualizada",
+        paciente: obtenerPaciente(perfil),
+        detalle: "Se actualizaron los antecedentes clínicos.",
+        fecha: perfil.actualizado_en || perfil.creado_en,
+      })),
+      ...cambiosOdontograma.map((cambio) => ({
+        id: `odontograma-${cambio.id}`,
+        tipo: "Odontograma actualizado",
+        paciente: obtenerPaciente(cambio),
+        detalle: `Pieza dental ${cambio.pieza} actualizada.`,
+        fecha: cambio.creado_en,
+      })),
+    ]
+      .filter((actividad) => actividad.fecha)
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
+      .slice(0, 8);
+
+    res.json({
+      pacientesRelacionados: pacienteIds.length,
+      citasHoy: citasDeHoy,
+      citasProgramadas: citasProgramadas.length,
+      pendientesClinicos: {
+        historiasPorCompletar: pacienteIds.filter((id) => !perfilesCompletados.has(String(id))).length,
+        atencionesPorRegistrar,
+      },
+      actividadClinica,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

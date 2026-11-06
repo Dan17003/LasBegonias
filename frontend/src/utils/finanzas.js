@@ -2,7 +2,7 @@ export const toNumber = (value) => Number(value) || 0;
 
 export const getPacienteId = (item) => Number(item?.paciente_id);
 
-export const calcularDeudas = (presupuestos, pagos, montoMinimo = 0) => {
+export const calcularSaldosPresupuestos = (presupuestos, pagos) => {
   const saldos = presupuestos.map((presupuesto) => ({
     presupuesto,
     pagado: 0,
@@ -40,6 +40,15 @@ export const calcularDeudas = (presupuestos, pagos, montoMinimo = 0) => {
           restante -= aplicado;
         });
     });
+
+  return saldos.map((item) => ({
+    ...item,
+    saldo: Math.max(0, Math.round(item.saldo * 100) / 100),
+  }));
+};
+
+export const calcularDeudas = (presupuestos, pagos, montoMinimo = 0) => {
+  const saldos = calcularSaldosPresupuestos(presupuestos, pagos);
 
   return saldos.filter((s) => {
     if (montoMinimo) {
@@ -132,4 +141,3 @@ export const contarPresupuestosPorVencer = (
     return vigencia >= hoy && vigencia <= limite;
   }).length;
 };
-

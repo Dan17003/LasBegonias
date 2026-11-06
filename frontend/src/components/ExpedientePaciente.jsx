@@ -45,7 +45,15 @@ function Tarjeta({ titulo, descripcion, children }) {
   );
 }
 
-export default function ExpedientePaciente({ expediente, documentos = [], perfil, onAbrirDocumento, onActualizado }) {
+export default function ExpedientePaciente({
+  expediente,
+  documentos = [],
+  perfil,
+  documentoAbriendo,
+  onAbrirDocumento,
+  onVerDocumento,
+  onActualizado,
+}) {
   const [pestana, setPestana] = useState("resumen");
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
@@ -151,7 +159,11 @@ export default function ExpedientePaciente({ expediente, documentos = [], perfil
               <div>
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-teal-800">Acción requerida</p>
                 <h3 className="mt-1 text-lg font-extrabold text-teal-950">Confirma tus antecedentes</h3>
-                <p className="mt-1 text-xs leading-relaxed text-teal-900">Revisa la información de tu expediente y deja constancia de que la leíste.</p>
+                <p className="mt-1 text-xs leading-relaxed text-teal-900">
+                  {consentimiento?.pendiente_desde
+                    ? "El odontólogo actualizó tus antecedentes. Revísalos y confirma nuevamente que la información es correcta."
+                    : "Revisa la información de tu expediente y deja constancia de que la leíste."}
+                </p>
               </div>
             </div>
             <div className="p-5 sm:p-6">
@@ -277,7 +289,12 @@ export default function ExpedientePaciente({ expediente, documentos = [], perfil
                     <p className="text-xs text-slate-500">{documento.tipo} · {formatoFecha(documento.fecha_documento || documento.creado_en)}</p>
                     {documento.descripcion && <p className="mt-1 text-xs text-slate-600">{documento.descripcion}</p>}
                   </div>
-                  <button type="button" onClick={() => onAbrirDocumento(documento)} className="rounded-lg border border-cyan-200 px-3 py-2 text-xs font-bold text-[#0e999b] hover:bg-cyan-50">Descargar</button>
+                  <div className="flex gap-2">
+                    <button type="button" disabled={documentoAbriendo === documento.id} onClick={() => onVerDocumento(documento)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                      {documentoAbriendo === documento.id ? "Abriendo…" : "Ver"}
+                    </button>
+                    <button type="button" disabled={documentoAbriendo === documento.id} onClick={() => onAbrirDocumento(documento)} className="rounded-lg border border-cyan-200 px-3 py-2 text-xs font-bold text-[#0e999b] hover:bg-cyan-50 disabled:opacity-50">Descargar</button>
+                  </div>
                 </li>
               ))}
             </ul>

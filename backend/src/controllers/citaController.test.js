@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Op } from "sequelize";
 import { Cita, Notificacion, Odontologo, Paciente, sequelize } from "../models/index.js";
 import { aprobarSolicitudCita, crearCita, obtenerHoraFinCita } from "./citaController.js";
+import { obtenerFechaLocalISO } from "../services/notificacionService.js";
 
 const crearRespuesta = () => ({
   statusCode: 200,
@@ -81,14 +82,16 @@ test("reception approval confirms a pending appointment and notifies its patient
   const originalFindAll = Cita.findAll;
   const originalOdontologistFindByPk = Odontologo.findByPk;
   const originalNotificationCreate = Notificacion.create;
+  const originalNotificationFindOrCreate = Notificacion.findOrCreate;
   let actualizacion;
   let notificacion;
+  const notificacionesCita = [];
   const solicitud = {
     id: 15,
     paciente_id: 7,
     odontologo_id: 3,
     doctor: "Dra. Ana",
-    fecha: "2026-11-03",
+    fecha: obtenerFechaLocalISO(),
     hora_inicio: "10:00:00",
     estado: "Solicitud de cita",
     token_respuesta: null,
@@ -100,6 +103,9 @@ test("reception approval confirms a pending appointment and notifies its patient
   sequelize.transaction = async (callback) => callback({ LOCK: { UPDATE: "UPDATE" } });
   Cita.findByPk = async (id, options) => {
     assert.equal(id, 15);
+    if (options.include) {
+      return { ...solicitud, Paciente: { nombres: "Paciente" } };
+    }
     assert.equal(options.lock, "UPDATE");
     return solicitud;
   };
@@ -107,6 +113,10 @@ test("reception approval confirms a pending appointment and notifies its patient
   Odontologo.findByPk = async () => ({ id: 3 });
   Notificacion.create = async (datos) => {
     notificacion = datos;
+  };
+  Notificacion.findOrCreate = async ({ where, defaults }) => {
+    notificacionesCita.push(where);
+    return [{ ...defaults, update: async () => {} }, true];
   };
 
   try {
@@ -117,6 +127,10 @@ test("reception approval confirms a pending appointment and notifies its patient
     assert.ok(actualizacion.token_respuesta);
     assert.equal(notificacion.paciente_id, 7);
     assert.equal(notificacion.cita_id, 15);
+    assert.deepEqual(notificacionesCita.map(({ tipo }) => tipo), [
+      "confirmacion_cita",
+      "recordatorio_cita",
+    ]);
     assert.equal(res.body.cita.estado, "Confirmada");
   } finally {
     sequelize.transaction = originalTransaction;
@@ -124,5 +138,6 @@ test("reception approval confirms a pending appointment and notifies its patient
     Cita.findAll = originalFindAll;
     Odontologo.findByPk = originalOdontologistFindByPk;
     Notificacion.create = originalNotificationCreate;
+    Notificacion.findOrCreate = originalNotificationFindOrCreate;
   }
 });

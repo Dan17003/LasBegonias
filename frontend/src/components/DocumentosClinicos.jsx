@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { jsPDF } from "jspdf";
 import api from "../services/api";
+import VisorPDF from "./VisorPDF";
+import { esDocumentoPDF } from "../utils/documentos";
 
 const MAX_TAMANO_ARCHIVO = 12 * 1024 * 1024;
 const TIPOS_PERMITIDOS = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
@@ -24,6 +26,36 @@ const PLANTILLAS_PRESCRIPCION = [
   ["orden-radiografica", "Orden radiográfica"],
   ["informe-radiografico", "Informe radiográfico"],
   ["descanso-medico", "Descanso médico"],
+];
+const OPCIONES_RECETA = [
+  { cantidad: 1, etiqueta: "Receta simple" },
+  { cantidad: 2, etiqueta: "Dos indicaciones" },
+  { cantidad: 3, etiqueta: "Tres indicaciones" },
+];
+const MEDICAMENTOS_SUGERIDOS = [
+  "Amoxicilina",
+  "Azitromicina",
+  "Clindamicina",
+  "Clorhexidina",
+  "Ibuprofeno",
+  "Metronidazol",
+  "Naproxeno",
+  "Paracetamol",
+];
+const SUGERENCIAS_RECETA = {
+  cantidad: ["___ unidad(es)", "___ tableta(s)", "___ cápsula(s)", "___ frasco(s)", "___ caja(s)"],
+  indicacion: [
+    "Según indicación del odontólogo",
+    "Tomar según indicación del odontólogo",
+    "Aplicar según indicación del odontólogo",
+    "Uso local según indicación del odontólogo",
+  ],
+  duracion: ["___ días", "___ semanas", "Según indicación del odontólogo"],
+};
+const NOTAS_RECETA_SUGERIDAS = [
+  "Seguir las indicaciones del odontólogo.",
+  "No exceder la cantidad indicada por el profesional.",
+  "Consultar al odontólogo ante cualquier reacción adversa.",
 ];
 const nombrePaciente = (paciente) => [paciente?.nombres, paciente?.apellidos].filter(Boolean).join(" ") || "____________________________";
 const documentoPaciente = (paciente) => paciente?.dni || "________________";
@@ -175,6 +207,7 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
   const [previsualizacion, setPrevisualizacion] = useState(null);
   const [plantilla, setPlantilla] = useState("");
   const [contenidoPlantilla, setContenidoPlantilla] = useState("");
+  const [modoReceta, setModoReceta] = useState("guiada");
   const [itemsReceta, setItemsReceta] = useState([{ medicamento: "", cantidad: "", indicacion: "", duracion: "" }]);
   const [notaReceta, setNotaReceta] = useState("");
   const selectorArchivo = useRef(null);
@@ -278,7 +311,8 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
 
   const seleccionarPlantilla = (id) => {
     setPlantilla(id);
-    setContenidoPlantilla(id === "receta" ? "" : contenidoInicialPlantilla(id, paciente));
+    setContenidoPlantilla(contenidoInicialPlantilla(id, paciente));
+    setModoReceta("guiada");
     setItemsReceta([{ medicamento: "", cantidad: "", indicacion: "", duracion: "" }]);
     setNotaReceta("");
     setError("");
@@ -288,13 +322,13 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
   const generarPrescripcion = async () => {
     if (!plantilla || subiendo) return;
     const lineasReceta = itemsReceta.filter((item) => Object.values(item).some((value) => value.trim()));
-    if (plantilla === "receta" && (lineasReceta.length === 0 || lineasReceta.some((item) =>
+    if (plantilla === "receta" && modoReceta === "guiada" && (lineasReceta.length === 0 || lineasReceta.some((item) =>
       !item.medicamento.trim() || !item.cantidad.trim() || !item.indicacion.trim() || !item.duracion.trim(),
     ))) {
       setError("Completa medicamento, cantidad, indicación y duración en cada línea de la receta.");
       return;
     }
-    const texto = plantilla === "receta"
+    const texto = plantilla === "receta" && modoReceta === "guiada"
       ? `${contenidoInicialPlantilla(plantilla, paciente)}\n\n${lineasReceta.map((item, index) =>
         `${index + 1}. ${item.medicamento || "Medicamento: ____________________"}\n   Cantidad: ${item.cantidad || "________"}\n   Indicación: ${item.indicacion || "____________________"}\n   Duración: ${item.duracion || "________"}`,
       ).join("\n\n")}${notaReceta.trim() ? `\n\nIndicaciones adicionales: ${notaReceta.trim()}` : ""}`
@@ -380,6 +414,9 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
   const actualizarCampoReceta = (index, field, value) => setItemsReceta((actuales) =>
     actuales.map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item),
   );
+  const agregarNotaSugerida = (nota) => setNotaReceta((actual) =>
+    actual.trim() ? `${actual.trim()}\n${nota}` : nota,
+  );
 
   return (
     <section className="space-y-5">
@@ -429,20 +466,63 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
                 </div>
                 {plantilla === "receta" ? (
                   <div className="space-y-3">
+                    <div role="group" aria-label="Formato de receta" className="flex flex-wrap gap-2">
+                      <button type="button" onClick={() => setModoReceta("guiada")} aria-pressed={modoReceta === "guiada"} className={`rounded-lg border px-3 py-2 text-xs font-bold ${modoReceta === "guiada" ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                        Receta guiada
+                      </button>
+                      <button type="button" onClick={() => setModoReceta("texto")} aria-pressed={modoReceta === "texto"} className={`rounded-lg border px-3 py-2 text-xs font-bold ${modoReceta === "texto" ? "border-cyan-500 bg-cyan-50 text-cyan-900" : "border-slate-200 text-slate-600 hover:bg-slate-50"}`}>
+                        Rellenar por texto
+                      </button>
+                    </div>
+                    {modoReceta === "guiada" ? (
+                    <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold text-slate-600">Formato rápido:</span>
+                      {OPCIONES_RECETA.map(({ cantidad, etiqueta }) => (
+                        <button key={cantidad} type="button" onClick={() => setItemsReceta(Array.from({ length: cantidad }, () => ({ medicamento: "", cantidad: "", indicacion: "", duracion: "" })))} className="rounded-full border border-cyan-200 bg-white px-3 py-1.5 text-xs font-semibold text-cyan-800 hover:bg-cyan-50">
+                          {etiqueta}
+                        </button>
+                      ))}
+                    </div>
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[680px] text-left text-xs">
                         <thead className="bg-[#087f81] text-white"><tr><th className="px-3 py-2.5">Medicamento</th><th className="px-3 py-2.5">Cantidad</th><th className="px-3 py-2.5">Indicación</th><th className="px-3 py-2.5">Duración</th><th className="px-3 py-2.5"> </th></tr></thead>
                         <tbody className="divide-y divide-slate-100">{itemsReceta.map((item, index) => <tr key={index}>
                           {["medicamento", "cantidad", "indicacion", "duracion"].map((field) => <td key={field} className="p-2">
-                            <input value={item[field]} onChange={(event) => actualizarCampoReceta(index, field, event.target.value)} maxLength={field === "medicamento" ? 200 : 300} aria-label={`${field} del medicamento ${index + 1}`} className="w-full min-w-28 rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
+                            <input list={field === "medicamento" ? "medicamentos-receta-sugeridos" : `receta-${field}-sugeridos`} value={item[field]} onChange={(event) => actualizarCampoReceta(index, field, event.target.value)} maxLength={field === "medicamento" ? 200 : 300} aria-label={`${field} del medicamento ${index + 1}`} placeholder={field === "medicamento" ? "Escribe o selecciona un medicamento" : field === "cantidad" ? "Escribe cantidad y presentación" : field === "indicacion" ? "Escribe la indicación" : "Escribe la duración"} className="w-full min-w-28 rounded-lg border border-slate-200 px-2.5 py-2 text-xs" />
                           </td>)}
                           <td className="p-2"><button type="button" aria-label={`Quitar medicamento ${index + 1}`} disabled={itemsReceta.length === 1} onClick={() => setItemsReceta((actuales) => actuales.filter((_, itemIndex) => itemIndex !== index))} className="rounded px-2 py-1 font-bold text-rose-600 disabled:opacity-30">×</button></td>
                         </tr>)}</tbody>
                       </table>
                     </div>
+                    <datalist id="medicamentos-receta-sugeridos">
+                      {MEDICAMENTOS_SUGERIDOS.map((medicamento) => <option key={medicamento} value={medicamento} />)}
+                    </datalist>
+                    {Object.entries(SUGERENCIAS_RECETA).map(([field, sugerencias]) => (
+                      <datalist key={field} id={`receta-${field}-sugeridos`}>
+                        {sugerencias.map((sugerencia) => <option key={sugerencia} value={sugerencia} />)}
+                      </datalist>
+                    ))}
                     <button type="button" onClick={() => setItemsReceta((actuales) => [...actuales, { medicamento: "", cantidad: "", indicacion: "", duracion: "" }])} className="rounded-lg border border-cyan-200 px-3 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-50">＋ Añadir medicamento</button>
-                    <label className="block text-xs font-semibold text-slate-600">Nota opcional<textarea value={notaReceta} onChange={(event) => setNotaReceta(event.target.value)} maxLength={2000} rows={3} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
-                    <p className="text-[11px] text-slate-500">La plataforma no sugiere ni completa medicamentos, dosis o indicaciones. El profesional debe verificar y prescribir el contenido.</p>
+                    <div className="space-y-2">
+                      <label className="block text-xs font-semibold text-slate-600">Nota opcional<textarea value={notaReceta} onChange={(event) => setNotaReceta(event.target.value)} maxLength={2000} rows={3} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-normal" /></label>
+                      <div className="flex flex-wrap gap-2">
+                        {NOTAS_RECETA_SUGERIDAS.map((nota) => (
+                          <button key={nota} type="button" onClick={() => agregarNotaSugerida(nota)} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-left text-[11px] font-medium text-slate-600 hover:border-cyan-200 hover:bg-cyan-50 hover:text-cyan-900">
+                            + {nota}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-slate-500">Las sugerencias de cantidad son formatos para completar y las demás son frases generales, no recomendaciones médicas ni dosis. El profesional debe verificar y completar la prescripción.</p>
+                    </>
+                    ) : (
+                      <label className="block text-xs font-semibold text-slate-600">
+                        Texto de la receta
+                        <textarea value={contenidoPlantilla} onChange={(event) => setContenidoPlantilla(event.target.value)} maxLength={12000} rows={12} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-normal leading-relaxed text-slate-700" />
+                        <span className="mt-1 block font-normal text-slate-500">El formato incluye los datos del paciente y la fecha. Escribe y verifica el contenido clínico antes de generar el PDF.</span>
+                      </label>
+                    )}
                   </div>
                 ) : (
                   <label className="block text-xs font-semibold text-slate-600">Contenido editable<textarea value={contenidoPlantilla} onChange={(event) => setContenidoPlantilla(event.target.value)} maxLength={12000} rows={plantilla === "orden-radiografica" ? 20 : 12} className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm font-normal leading-relaxed text-slate-700" /></label>
@@ -538,8 +618,8 @@ export default function DocumentosClinicos({ pacienteId, paciente }) {
               <button type="button" onClick={() => setPrevisualizacion(null)} aria-label="Cerrar vista previa" className="shrink-0 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-50">Cerrar</button>
             </div>
             <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-3">
-              {previsualizacion.documento.mime_type === "application/pdf" ? (
-                <iframe title={`Vista previa: ${previsualizacion.documento.nombre}`} src={previsualizacion.url} sandbox="allow-scripts" referrerPolicy="no-referrer" className="h-[75vh] w-full rounded-lg bg-white" />
+              {esDocumentoPDF(previsualizacion.documento) ? (
+                <VisorPDF src={previsualizacion.url} nombre={previsualizacion.documento.nombre} />
               ) : (
                 <img src={previsualizacion.url} alt={`Vista previa: ${previsualizacion.documento.nombre}`} className="mx-auto max-h-[75vh] max-w-full object-contain" />
               )}

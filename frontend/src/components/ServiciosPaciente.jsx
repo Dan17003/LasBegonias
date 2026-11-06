@@ -7,6 +7,7 @@ const soles = (monto) => `S/ ${Number(monto || 0).toFixed(2)}`;
 export default function ServiciosPaciente({ pacienteId, citas = [] }) {
   const [catalogo, setCatalogo] = useState([]);
   const [solicitudes, setSolicitudes] = useState([]);
+  const [presupuestos, setPresupuestos] = useState([]);
   const [servicioId, setServicioId] = useState("");
   const [citaId, setCitaId] = useState("");
   const [cantidad, setCantidad] = useState(1);
@@ -15,15 +16,18 @@ export default function ServiciosPaciente({ pacienteId, citas = [] }) {
   const [error, setError] = useState("");
   const [mensaje, setMensaje] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [eliminandoPresupuestoId, setEliminandoPresupuestoId] = useState(null);
 
   const cargar = async () => {
     try {
-      const [serviciosRespuesta, solicitudesRespuesta] = await Promise.all([
+      const [serviciosRespuesta, solicitudesRespuesta, presupuestosRespuesta] = await Promise.all([
         api.get("/servicios"),
         api.get(`/historia/pacientes/${pacienteId}/servicios-solicitados`),
+        api.get(`/historia/pacientes/${pacienteId}/presupuestos`),
       ]);
       setCatalogo(serviciosRespuesta.data || []);
       setSolicitudes(solicitudesRespuesta.data || []);
+      setPresupuestos(presupuestosRespuesta.data || []);
     } catch (err) {
       setError(err.response?.data?.error || "No se pudieron cargar los servicios.");
     }
@@ -71,6 +75,30 @@ export default function ServiciosPaciente({ pacienteId, citas = [] }) {
       setSolicitudes((actuales) => actuales.filter((item) => item.id !== solicitudId));
     } catch (err) {
       setError(err.response?.data?.error || "No se pudo retirar la solicitud.");
+    }
+  };
+
+  const eliminarPresupuesto = async (presupuesto) => {
+    const confirmado = window.confirm(
+      `¿Eliminar el presupuesto "${presupuesto.descripcion}"? También se eliminará en Recepción y se notificará al equipo.`
+    );
+    if (!confirmado) return;
+
+    setError("");
+    setMensaje("");
+    setEliminandoPresupuestoId(presupuesto.id);
+    try {
+      const { data } = await api.delete(`/historia/pacientes/${pacienteId}/presupuestos/${presupuesto.id}`);
+      setPresupuestos((actuales) => actuales.filter((item) => item.id !== presupuesto.id));
+      if (data?.notificacionEnviada === false) {
+        setError(data.mensaje);
+      } else {
+        setMensaje(data?.mensaje || "Presupuesto eliminado.");
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || "No se pudo eliminar el presupuesto.");
+    } finally {
+      setEliminandoPresupuestoId(null);
     }
   };
 
@@ -154,6 +182,41 @@ export default function ServiciosPaciente({ pacienteId, citas = [] }) {
                   </span>
                   {solicitud.estado === "pendiente" && <button type="button" onClick={() => eliminar(solicitud.id)} className="text-xs font-bold text-rose-600">Retirar</button>}
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-violet-100 bg-white shadow-sm">
+        <div className="border-b border-violet-100 bg-violet-50/70 px-5 py-4">
+          <h3 className="text-sm font-bold text-violet-950">Presupuestos del paciente</h3>
+          <p className="mt-1 text-xs text-violet-700">Los cambios se reflejan también en Recepción.</p>
+        </div>
+        {presupuestos.length === 0 ? (
+          <p className="p-6 text-center text-sm text-slate-400">No hay presupuestos asociados a este paciente.</p>
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {presupuestos.map((presupuesto) => (
+              <div key={presupuesto.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{presupuesto.titulo || presupuesto.descripcion}</p>
+                  {presupuesto.titulo && <p className="mt-1 text-xs text-slate-500">{presupuesto.descripcion}</p>}
+                  <p className="mt-1 text-xs font-semibold text-violet-800">{soles(presupuesto.monto)}</p>
+                  {presupuesto.PresupuestoDetalles?.length > 0 && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {presupuesto.PresupuestoDetalles.map((detalle) => detalle.servicio_nombre).join(", ")}
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={eliminandoPresupuestoId === presupuesto.id}
+                  onClick={() => eliminarPresupuesto(presupuesto)}
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-700 transition hover:bg-rose-100 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {eliminandoPresupuestoId === presupuesto.id ? "Eliminando..." : "Eliminar presupuesto"}
+                </button>
               </div>
             ))}
           </div>

@@ -167,15 +167,22 @@ export default function Reportes() {
           datos: [
             {
               Periodo: periodoLabel,
-              "Total recaudado": formatearSoles(resumen.totalRecaudado),
+              "Total recaudado": resumen.totalRecaudado,
               "Citas atendidas": resumen.citasAtendidas,
               "Total citas": resumen.citasTotal,
-              "Tasa exito": `${resumen.tasaExito}%`,
-              "Tasa inasistencias": `${resumen.tasaInasistencias}%`,
-              "Deuda activa": formatearSoles(analitica.totalDeuda),
-              "Presupuestado historico": formatearSoles(analitica.totalPresupuestado),
+              "Tasa exito": resumen.tasaExito / 100,
+              "Tasa inasistencias": resumen.tasaInasistencias / 100,
+              "Deuda activa": analitica.totalDeuda,
+              "Presupuestado historico": analitica.totalPresupuestado,
             },
           ],
+          formatos: {
+            "Total recaudado": "moneda",
+            "Tasa exito": "porcentaje",
+            "Tasa inasistencias": "porcentaje",
+            "Deuda activa": "moneda",
+            "Presupuestado historico": "moneda",
+          },
         },
         {
           nombre: "Doctores",
@@ -183,16 +190,21 @@ export default function Reportes() {
             Odontologo: r.doctor,
             Especialidad: r.especialidad,
             Citas: r.citas,
-            Cumplimiento: r.efectividad,
+            Cumplimiento: Number.parseFloat(r.efectividad) / 100,
             Ingresos: r.ingresosNum,
           })),
+          formatos: {
+            Cumplimiento: "porcentaje",
+            Ingresos: "moneda",
+          },
         },
         {
           nombre: "Tendencia",
           datos: analitica.tendenciaMensual.map((m) => ({
             Mes: m.label,
-            Ingresos: formatearSoles(m.total),
+            Ingresos: m.total,
           })),
+          formatos: { Ingresos: "moneda" },
         },
         {
           nombre: "Estados",
@@ -205,8 +217,9 @@ export default function Reportes() {
           nombre: "Metodos Pago",
           datos: Object.entries(analitica.metodosPago).map(([metodo, total]) => ({
             Metodo: metodo,
-            Total: formatearSoles(total),
+            Total: total,
           })),
+          formatos: { Total: "moneda" },
         },
         {
           nombre: "Servicios",
@@ -220,10 +233,15 @@ export default function Reportes() {
           datos: analitica.deudas.map((d) => ({
             Paciente: d.presupuesto.paciente_id,
             Descripcion: d.presupuesto.descripcion,
-            Total: formatearSoles(d.presupuesto.monto),
-            Pagado: formatearSoles(d.pagado),
-            Saldo: formatearSoles(d.saldo),
+            Total: toNumber(d.presupuesto.monto),
+            Pagado: d.pagado,
+            Saldo: d.saldo,
           })),
+          formatos: {
+            Total: "moneda",
+            Pagado: "moneda",
+            Saldo: "moneda",
+          },
         },
       ],
       `reporte-begonias-${filtroMes}`
@@ -294,11 +312,22 @@ export default function Reportes() {
             { header: "Pagado", key: "pagado" },
             { header: "Saldo", key: "saldo" },
           ],
-          filas: analitica.deudas.slice(0, 20).map((d) => ({
+          filas: analitica.deudas.map((d) => ({
             descripcion: d.presupuesto.descripcion,
             total: formatearSoles(d.presupuesto.monto),
             pagado: formatearSoles(d.pagado),
             saldo: formatearSoles(d.saldo),
+          })),
+        },
+        {
+          titulo: "Citas por servicio",
+          columnas: [
+            { header: "Servicio", key: "servicio" },
+            { header: "Cantidad de citas", key: "citas" },
+          ],
+          filas: Object.entries(analitica.citasPorServicio).map(([servicio, citas]) => ({
+            servicio,
+            citas,
           })),
         },
       ],

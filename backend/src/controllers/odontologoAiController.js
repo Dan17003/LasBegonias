@@ -1,15 +1,18 @@
-import { Op } from "sequelize";
 import {
   AntecedenteOdontologico,
   Atencion,
   Cita,
+  Consentimiento,
+  DocumentoClinico,
   HistoriaAlergia,
   HistoriaClinicaPerfil,
   HistoriaDiagnostico,
+  HistoriaDiagnosticoCambio,
   HistoriaMedicamento,
   Odontologo,
   OdontogramaPieza,
   Paciente,
+  PeriodontogramaEvaluacion,
   PeriodontogramaMedicion,
   PlanTratamiento,
   ProcedimientoRealizado,
@@ -18,12 +21,13 @@ import {
 import { validarAccesoPaciente } from "./historiaController.js";
 import { AiServiceError, responderConsultaOdontologica } from "../services/odontologoAiService.js";
 
-const SECCIONES_RESUMEN = [
+const SECCIONES_CONTEXTO_CLINICO = [
   "motivoConsulta", "antecedentesMedicos", "alergias", "medicamentos",
   "antecedentesOdontologicos", "examenes", "odontograma", "periodontograma",
-  "diagnosticos", "planesTratamiento", "atenciones", "procedimientos",
+  "evaluacionesPeriodontales", "diagnosticos", "cambiosDiagnosticos",
+  "planesTratamiento", "atenciones", "procedimientos", "consentimientos",
+  "citas", "edad", "sexo", "documentos",
 ];
-
 const REQUIERE_CONTEXTO_ANTERIOR = /\b(eso|esto|esa|ese|aquello|aquella|aquel|lo anterior|la anterior|el anterior|en ese caso|en este caso|entonces|influye|afecta|lo que dijiste|lo que mencionaste|mas detalle|amplia|explica mas|otra opcion|otra alternativa|mas opciones|alguna alternativa|primera opcion|segunda opcion|cual opcion)\b/i;
 
 const normalizarTexto = (value) => value
@@ -31,71 +35,7 @@ const normalizarTexto = (value) => value
   .replace(/[\u0300-\u036f]/g, "")
   .toLocaleLowerCase("es-PE");
 
-const SOLICITA_SUGERENCIAS_CLINICAS = /\b(suger\w*|recomend\w*|opciones? de tratamiento|alternativas? (?:de )?tratamiento|que procedimientos? (?:podria|puedo|deberia|se puede|recomiendas?|considerar|valorar)|que tratamientos? (?:podria|puedo|deberia|considerar|valorar)|procedimientos? (?:posibles|a considerar|por valorar)|que podria realizar|que se le puede hacer)\b/i;
-const SECCIONES_PARA_SUGERENCIAS = [
-  "motivoConsulta", "antecedentesMedicos", "alergias", "medicamentos",
-  "antecedentesOdontologicos", "examenes", "odontograma", "periodontograma",
-  "diagnosticos", "planesTratamiento", "atenciones", "procedimientos",
-];
-
-export const seleccionarSecciones = (message, conversation) => {
-  const texto = normalizarTexto(message);
-  const secciones = new Set();
-  const agregar = (pattern, ...values) => {
-    if (pattern.test(texto)) values.forEach((value) => secciones.add(value));
-  };
-
-  if (SOLICITA_SUGERENCIAS_CLINICAS.test(texto)) {
-    SECCIONES_PARA_SUGERENCIAS.forEach((value) => secciones.add(value));
-  }
-
-  if (/\b(resumen|resume|resumir)\s+(?:de\s+)?(?:la\s+)?(?:historia clinica|informacion clinica|todo)\b|\b(historia clinica completa|informacion clinica relevante)\b/.test(texto)) {
-    SECCIONES_RESUMEN.forEach((value) => secciones.add(value));
-  }
-  agregar(/\b(motivo de consulta|por que consult|razon de consulta)\b/, "motivoConsulta");
-  agregar(/\b(alerg\w*|reaccion alergica)\b/, "alergias");
-  agregar(/\b(medic\w*|farmac\w*|dosis|interaccion medicamentosa)\b/, "medicamentos");
-  agregar(/\b(antecedentes? medicos?|antecedentes? de salud|hipertension|diabet|asma|embarazo|enfermedad|condicion medica)\b/, "antecedentesMedicos");
-  agregar(/\b(antecedente odontolog|historial odontolog)\b/, "antecedentesOdontologicos");
-  agregar(/\b(examen extraoral|examen intraoral|examenes registrados|hallazgos clinicos)\b/, "examenes");
-  agregar(/\b(odontograma|pieza dental|diente|caries|corona|pieza ausente)\b/, "odontograma");
-  agregar(/\b(periodontograma|sondaje|sangrado gingival|movilidad dental|furcacion|periodontal)\b/, "periodontograma");
-  agregar(/\b(diagnostico|diagnosticos|diagnosticado)\b/, "diagnosticos");
-  agregar(/\b(tratamiento|tratamientos|plan terapeutico|plan de tratamiento|pendiente)\b/, "planesTratamiento");
-  agregar(/\b(procedimiento|procedimientos)\b/, "procedimientos");
-  agregar(/\b(atencion|atenciones|evolucion|cambios entre|compar|ultima consulta|ultimas consultas)\b/, "atenciones");
-  agregar(/\b(proxima cita|citas futuras|proxima atencion|cuando es su cita)\b/, "citas");
-  agregar(/\b(edad|cuantos anos tiene|anos tiene)\b/, "edad");
-  agregar(/\b(sexo|genero)\b/, "sexo");
-
-  if (secciones.size === 0 || REQUIERE_CONTEXTO_ANTERIOR.test(texto)) {
-    const preguntaAnterior = [...conversation].reverse().find((item) => item.role === "user");
-    if (preguntaAnterior) {
-      const textoAnterior = normalizarTexto(preguntaAnterior.content);
-      if (/\b(resumen|resume|resumir)\s+(?:de\s+)?(?:la\s+)?(?:historia clinica|informacion clinica|todo)\b|\b(historia clinica completa|informacion clinica relevante)\b/.test(textoAnterior)) {
-        SECCIONES_RESUMEN.forEach((value) => secciones.add(value));
-      }
-      if (SOLICITA_SUGERENCIAS_CLINICAS.test(textoAnterior)) {
-        SECCIONES_PARA_SUGERENCIAS.forEach((value) => secciones.add(value));
-      }
-      for (const [pattern, ...values] of [
-        [/\b(alerg\w*|reaccion alergica)\b/, "alergias"],
-        [/\b(medic\w*|farmac\w*|dosis)\b/, "medicamentos"],
-        [/\b(antecedentes? medicos?|antecedentes? de salud|hipertension|diabet|asma|embarazo|enfermedad)\b/, "antecedentesMedicos"],
-        [/\b(odontograma|pieza dental|diente|caries|corona)\b/, "odontograma"],
-        [/\b(periodontograma|sondaje|periodontal)\b/, "periodontograma"],
-        [/\b(diagnostico|diagnosticos)\b/, "diagnosticos"],
-        [/\b(tratamiento|plan terapeutico|pendiente)\b/, "planesTratamiento"],
-        [/\b(procedimiento)\b/, "procedimientos"],
-        [/\b(atencion|evolucion|cambios entre|compar|consulta)\b/, "atenciones"],
-      ]) {
-        if (pattern.test(textoAnterior)) values.forEach((value) => secciones.add(value));
-      }
-    }
-  }
-
-  return [...secciones];
-};
+export const seleccionarSecciones = () => [...SECCIONES_CONTEXTO_CLINICO];
 
 const redactarTextoPersonal = (value, paciente, ocultarNombresProbables = false) => {
   let text = String(value ?? "");
@@ -140,7 +80,7 @@ const limpiarJsonClinico = (value, paciente, depth = 0) => {
   );
 };
 
-const obtenerRegistro = async (Model, pacienteId, paciente, fields, order, limit = 20) => {
+const obtenerRegistro = async (Model, pacienteId, paciente, fields, order, limit = 100) => {
   const rows = await Model.findAll({
     attributes: fields,
     where: { paciente_id: pacienteId },
@@ -198,10 +138,14 @@ const obtenerContextoClinico = async (paciente, odontologo, secciones) => {
     ["medicamentos", "medicamentos", HistoriaMedicamento, ["nombre", "dosis", "frecuencia", "via", "indicaciones", "activo"], [["creado_en", "DESC"]]],
     ["antecedentesOdontologicos", "antecedentesOdontologicos", AntecedenteOdontologico, ["tipo", "descripcion", "fecha"], [["fecha", "DESC"]]],
     ["odontograma", "odontograma", OdontogramaPieza, ["pieza", "estado", "notas"], [["pieza", "ASC"]]],
-    ["periodontograma", "periodontograma", PeriodontogramaMedicion, ["pieza", "sitio", "profundidad_sondaje", "nivel_insercion", "sangrado", "movilidad", "furcacion", "notas"], [["pieza", "ASC"]]],
+    ["periodontograma", "periodontograma", PeriodontogramaMedicion, ["pieza", "sitio", "fecha_evaluacion", "profundidad_sondaje", "margen_gingival", "nivel_insercion", "sangrado", "placa", "supuracion", "movilidad", "furcacion", "notas"], [["fecha_evaluacion", "DESC"], ["pieza", "ASC"]]],
     ["diagnosticos", "diagnosticos", HistoriaDiagnostico, ["codigo", "descripcion", "tipo", "estado", "notas"], [["creado_en", "DESC"]]],
-    ["planesTratamiento", "planesTratamiento", PlanTratamiento, ["titulo", "descripcion", "estado", "prioridad", "fecha_inicio", "fecha_fin"], [["creado_en", "DESC"]]],
+    ["cambiosDiagnosticos", "cambiosDiagnosticos", HistoriaDiagnosticoCambio, ["estado_anterior", "estado_nuevo", "creado_en"], [["creado_en", "DESC"]]],
+    ["planesTratamiento", "planesTratamiento", PlanTratamiento, ["titulo", "descripcion", "estado", "prioridad", "fecha_inicio", "fecha_prevista", "fecha_fin"], [["creado_en", "DESC"]]],
     ["procedimientos", "procedimientos", ProcedimientoRealizado, ["pieza", "codigo", "descripcion", "fecha", "observaciones"], [["fecha", "DESC"]]],
+    ["consentimientos", "consentimientos", Consentimiento, ["tipo", "estado", "firmado_en", "observaciones"], [["creado_en", "DESC"]]],
+    ["evaluacionesPeriodontales", "evaluacionesPeriodontales", PeriodontogramaEvaluacion, ["fecha", "estado", "observaciones", "motivo_correccion"], [["fecha", "DESC"]]],
+    ["documentos", "documentosClinicos", DocumentoClinico, ["tipo", "descripcion", "fecha_documento", "visible_para_paciente"], [["fecha_documento", "DESC"]]],
   ];
 
   for (const [section, key, Model, fields, order] of registrosClinicos) {
@@ -215,29 +159,28 @@ const obtenerContextoClinico = async (paciente, odontologo, secciones) => {
     ],
     where: { paciente_id: paciente.id, odontologo_id: odontologo.id },
     order: [["fecha", "DESC"], ["id", "DESC"]],
-    limit: 5,
+    limit: 100,
   }).then((rows) => rows.map((row) => Object.fromEntries(
     ["fecha", "motivo_consulta", "antecedentes", "evaluacion", "hallazgos", "diagnostico",
       "procedimiento", "tratamiento", "evolucion", "indicaciones", "proxima_cita", "observaciones"]
       .map((field) => [field, limpiarJsonClinico(row.get(field), paciente)])
   ))));
 
-  incluir("citas", "proximasCitas", () => Cita.findAll({
+  incluir("citas", "citasRegistradas", () => Cita.findAll({
     attributes: ["fecha", "hora_inicio", "motivo", "servicio", "estado"],
     where: {
       paciente_id: paciente.id,
       odontologo_id: odontologo.id,
-      fecha: { [Op.gte]: new Date().toISOString().slice(0, 10) },
     },
-    order: [["fecha", "ASC"], ["hora_inicio", "ASC"]],
-    limit: 5,
+    order: [["fecha", "DESC"], ["hora_inicio", "DESC"]],
+    limit: 100,
   }).then((rows) => rows.map((row) => Object.fromEntries(
     ["fecha", "hora_inicio", "motivo", "servicio", "estado"]
       .map((field) => [field, limpiarJsonClinico(row.get(field), paciente)])
   ))));
 
-  if (secciones.includes("edad")) context.edad = obtenerEdad(paciente.fecha_nacimiento);
-  if (secciones.includes("sexo")) context.sexo = redactarTextoPersonal(paciente.sexo || "", paciente);
+  context.edad = obtenerEdad(paciente.fecha_nacimiento);
+  context.sexo = redactarTextoPersonal(paciente.sexo || "", paciente);
   await Promise.all(tareas);
   return context;
 };
@@ -288,8 +231,7 @@ export const conversarConAsistenteOdontologico = async (req, res) => {
     if (!paciente) return res.status(404).json({ error: "Paciente no encontrado." });
 
     const mensajeSeguro = redactarTextoPersonal(message.trim(), paciente, true);
-    const secciones = seleccionarSecciones(mensajeSeguro, historial);
-    const context = await obtenerContextoClinico(paciente, odontologo, secciones);
+    const context = await obtenerContextoClinico(paciente, odontologo, seleccionarSecciones());
     const answer = await responderConsultaOdontologica({
       context,
       conversation: obtenerConversacionParaProveedor(historial, mensajeSeguro, paciente),

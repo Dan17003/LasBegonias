@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import bcrypt from "bcrypt";
+import { Op } from "sequelize";
 import { requirePatient } from "../middlewares/authMiddleware.js";
 import {
   Atencion,
@@ -433,13 +434,19 @@ test("patient assistant uses AI with only the public service catalog and questio
 
   try {
     const res = crearRespuesta();
-    await responderPreguntaPaciente({ user: { id: 42 }, body: { mensaje: "¿Cuánto cuesta la limpieza dental?" } }, res);
+    await responderPreguntaPaciente({
+      user: { id: 42 },
+      body: { mensaje: "¿Cuánto cuesta la limpieza dental?", autoriza_tratamiento: true },
+    }, res);
     assert.equal(res.statusCode, 200);
     assert.match(res.body.respuesta, /PEN 120\.00/);
     assert.equal(requestBody.messages[1].content.includes("Limpieza dental"), true);
     assert.equal(requestBody.messages[1].content.includes("Dato clínico privado"), false);
     assert.equal(requestBody.messages[1].content.includes("Paciente privado"), false);
     assert.equal(requestBody.model, "test-model");
+    assert.match(requestBody.messages[0].content, /formato Markdown sencillo/);
+    assert.match(requestBody.messages[0].content, /tabla Markdown auténtica/);
+    assert.match(requestBody.messages[0].content, /Desde Mis citas puede consultar sus citas/);
     assert.equal(res.headers["Cache-Control"], "private, no-store");
   } finally {
     Paciente.findOne = originalPatientFindOne;
@@ -449,6 +456,75 @@ test("patient assistant uses AI with only the public service catalog and questio
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
+  }
+});
+
+test("patient assistant answers the next appointment from the authenticated patient's schedule", async () => {
+  const originalPatientFindOne = Paciente.findOne;
+  const originalAppointmentFindOne = Cita.findOne;
+  const originalServiceFindAll = Servicio.findAll;
+  let appointmentQuery;
+  let catalogQueried = false;
+  Paciente.findOne = async () => ({ id: 7 });
+  Cita.findOne = async (options) => {
+    appointmentQuery = options;
+    return {
+      fecha: proximaFechaConDia(2),
+      hora_inicio: "10:30:00",
+      doctor: "Dra. Ejemplo",
+      servicio: "Consulta",
+      estado: "Solicitud de cita",
+    };
+  };
+  Servicio.findAll = async () => {
+    catalogQueried = true;
+    return [];
+  };
+
+  try {
+    const res = crearRespuesta();
+    await responderPreguntaPaciente({
+      user: { id: 42 },
+      body: { mensaje: "¿Cuándo es mi próxima cita?", autoriza_tratamiento: true },
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.equal(appointmentQuery.where.paciente_id, 7);
+    assert.match(appointmentQuery.where.fecha[Op.gte], /^\d{4}-\d{2}-\d{2}$/);
+    assert.deepEqual(appointmentQuery.where.estado[Op.notIn], ["Cancelada", "Atendida", "Completada"]);
+    assert.deepEqual(appointmentQuery.attributes, ["fecha", "hora_inicio", "doctor", "servicio", "estado"]);
+    assert.deepEqual(appointmentQuery.order, [["fecha", "ASC"], ["hora_inicio", "ASC"]]);
+    assert.match(res.body.respuesta, /\*\*Tu próxima cita\*\*/);
+    assert.match(res.body.respuesta, /Dra\. Ejemplo/);
+    assert.match(res.body.respuesta, /pendiente de confirmación por la clínica/);
+    assert.equal(catalogQueried, false);
+    assert.equal(res.headers["Cache-Control"], "private, no-store");
+  } finally {
+    Paciente.findOne = originalPatientFindOne;
+    Cita.findOne = originalAppointmentFindOne;
+    Servicio.findAll = originalServiceFindAll;
+  }
+});
+
+test("patient assistant explains when there is no upcoming appointment", async () => {
+  const originalPatientFindOne = Paciente.findOne;
+  const originalAppointmentFindOne = Cita.findOne;
+  Paciente.findOne = async () => ({ id: 7 });
+  Cita.findOne = async () => null;
+
+  try {
+    const res = crearRespuesta();
+    await responderPreguntaPaciente({
+      user: { id: 42 },
+      body: { mensaje: "¿Cuál es mi siguiente cita?", autoriza_tratamiento: true },
+    }, res);
+
+    assert.equal(res.statusCode, 200);
+    assert.match(res.body.respuesta, /No tienes una próxima cita programada/);
+    assert.match(res.body.respuesta, /\*\*Mis citas\*\*/);
+  } finally {
+    Paciente.findOne = originalPatientFindOne;
+    Cita.findOne = originalAppointmentFindOne;
   }
 });
 
@@ -464,8 +540,42 @@ test("patient assistant rejects questions longer than its documented limit", asy
 
   try {
     const res = crearRespuesta();
-    await responderPreguntaPaciente({ user: { id: 42 }, body: { mensaje: "x".repeat(501) } }, res);
+    await responderPreguntaPaciente({
+      user: { id: 42 },
+      body: { mensaje: "x".repeat(501), autoriza_tratamiento: true },
+    }, res);
     assert.equal(res.statusCode, 400);
+    assert.equal(catalogQueried, false);
+  } finally {
+    Paciente.findOne = originalPatientFindOne;
+    Servicio.findAll = originalServiceFindAll;
+  }
+});
+
+test("patient assistant requires consent before accessing patient data or the AI service", async () => {
+  const originalPatientFindOne = Paciente.findOne;
+  const originalServiceFindAll = Servicio.findAll;
+  let patientQueried = false;
+  let catalogQueried = false;
+  Paciente.findOne = async () => {
+    patientQueried = true;
+    return { id: 7 };
+  };
+  Servicio.findAll = async () => {
+    catalogQueried = true;
+    return [];
+  };
+
+  try {
+    const res = crearRespuesta();
+    await responderPreguntaPaciente({
+      user: { id: 42 },
+      body: { mensaje: "¿Cuánto cuesta una limpieza?" },
+    }, res);
+
+    assert.equal(res.statusCode, 403);
+    assert.match(res.body.error, /autoriza el tratamiento/i);
+    assert.equal(patientQueried, false);
     assert.equal(catalogQueried, false);
   } finally {
     Paciente.findOne = originalPatientFindOne;

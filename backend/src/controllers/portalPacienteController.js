@@ -67,6 +67,43 @@ const fechaISOValida = (value) => {
 const normalizarNombreServicio = (nombre) =>
   String(nombre || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLocaleLowerCase("es");
 
+const normalizarPregunta = (pregunta) =>
+  pregunta.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("es");
+
+const esPreguntaProximaCita = (pregunta) => {
+  const normalizada = normalizarPregunta(pregunta);
+  return /\b(?:proxima|siguiente)\s+(?:cita|atencion)\b|\bcuando\s+(?:es|tengo|sera|tendre)\s+(?:mi\s+)?cita\b|\b(?:fecha|dia|hora)\s+(?:de\s+)?(?:mi\s+)?(?:proxima\s+)?cita\b|\bmi\s+cita\s+(?:mas\s+)?proxima\b/.test(normalizada);
+};
+
+const formatearProximaCita = (cita) => {
+  const fecha = new Intl.DateTimeFormat("es-PE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${cita.fecha}T12:00:00.000Z`));
+  const hora = new Intl.DateTimeFormat("es-PE", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: "UTC",
+  }).format(new Date(`${cita.fecha}T${String(cita.hora_inicio).slice(0, 5)}:00.000Z`));
+  const estado = String(cita.estado || "").trim();
+  const estadoNormalizado = normalizarPregunta(estado);
+  const estadoVisible = ["solicitud de cita", "solicitud de reprogramacion"].includes(estadoNormalizado)
+    ? "pendiente de confirmación por la clínica"
+    : estado || "por confirmar";
+  const detalles = [
+    `- **Fecha:** ${fecha}, a las ${hora}`,
+    cita.servicio ? `- **Servicio:** ${cita.servicio}` : null,
+    cita.doctor ? `- **Profesional:** ${cita.doctor}` : null,
+    `- **Estado:** ${estadoVisible}`,
+  ].filter(Boolean);
+
+  return `**Tu próxima cita**\n\n${detalles.join("\n")}`;
+};
+
 export const esServicioPacienteAutogestionable = (servicio) =>
   SERVICIOS_AUTOGESTIONABLES.has(normalizarNombreServicio(servicio?.nombre));
 
@@ -513,11 +550,33 @@ export const listarFinanzasPaciente = async (req, res) => {
 
 export const responderPreguntaPaciente = async (req, res) => {
   try {
+    if (req.body?.autoriza_tratamiento !== true) {
+      return res.status(403).json({
+        error: "Autoriza el tratamiento de los datos de tu consulta antes de usar el asistente virtual.",
+      });
+    }
     const paciente = await obtenerPacienteActual(req);
     if (!paciente) return res.status(404).json({ error: "No hay una ficha de paciente vinculada a esta cuenta." });
     const pregunta = typeof req.body?.mensaje === "string" ? req.body.mensaje.trim() : "";
     if (!pregunta) return res.status(400).json({ error: "Escribe una pregunta." });
     if (pregunta.length > 500) return res.status(400).json({ error: "La pregunta no puede superar los 500 caracteres." });
+    if (esPreguntaProximaCita(pregunta)) {
+      const cita = await Cita.findOne({
+        where: {
+          paciente_id: paciente.id,
+          fecha: { [Op.gte]: fechaLocal() },
+          estado: { [Op.notIn]: ["Cancelada", "Atendida", "Completada"] },
+        },
+        attributes: ["fecha", "hora_inicio", "doctor", "servicio", "estado"],
+        order: [["fecha", "ASC"], ["hora_inicio", "ASC"]],
+      });
+      const respuesta = cita
+        ? formatearProximaCita(cita)
+        : "No tienes una próxima cita programada. Puedes consultar tus citas o solicitar una desde la sección **Mis citas** del portal.";
+      res.set("Cache-Control", "private, no-store");
+      return res.json({ respuesta });
+    }
+
     const catalogo = await Servicio.findAll({
       where: { activo: true },
       attributes: ["nombre", "categoria", "precio", "moneda"],

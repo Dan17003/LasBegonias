@@ -19,6 +19,9 @@ export default function Pacientes() {
   const [showModal, setShowModal] = useState(false);
   const [editandoPaciente, setEditandoPaciente] = useState(null);
   const [filtroActivo, setFiltroActivo] = useState("Todos");
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroCitas, setFiltroCitas] = useState("Todas");
+  const [mostrarFiltros, setMostrarFiltros] = useState(false);
 
   const [form, setForm] = useState({
     dni: "",
@@ -76,13 +79,29 @@ export default function Pacientes() {
 
   const pacientesFiltrados = pacientes.filter((paciente) => {
     const deuda = getDeuda(paciente.id);
+    const termino = busqueda.trim().toLocaleLowerCase("es-PE").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const textoPaciente = [
+      paciente.nombres,
+      paciente.apellidos,
+      paciente.dni,
+      paciente.telefono,
+      paciente.email,
+    ].filter(Boolean).join(" ").toLocaleLowerCase("es-PE").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    if (termino && !textoPaciente.includes(termino)) return false;
 
     if (filtroActivo === "Con deuda") {
-      return deuda > 0;
+      if (deuda <= 0) return false;
     }
 
     if (filtroActivo === "Sin deuda") {
-      return deuda === 0;
+      if (deuda > 0) return false;
+    }
+
+    if (filtroCitas !== "Todas") {
+      const { proxima } = getResumenCitas(citas, paciente.id);
+      if (filtroCitas === "Con cita próxima" && !proxima) return false;
+      if (filtroCitas === "Sin cita próxima" && proxima) return false;
     }
 
     return true;
@@ -127,26 +146,26 @@ export default function Pacientes() {
   };
 
   const eliminarPaciente = async (id) => {
+    const paciente = pacientes.find((p) => p.id === id);
     const confirmar = window.confirm(
-      "¿Deseas eliminar este paciente?"
+      `¿Eliminar definitivamente a ${paciente?.nombres || "este paciente"}?\n\n` +
+      "También se borrarán permanentemente sus registros clínicos, historial, citas, " +
+      "documentos, presupuestos, pagos y cuenta de acceso. Esta acción no se puede deshacer."
     );
 
     if (!confirmar) return;
 
     try {
-      await api.delete(`/pacientes/${id}`);
+      const { data } = await api.delete(`/pacientes/${id}`);
 
       setPacientes((prev) =>
         prev.filter((p) => p.id !== id)
       );
       cerrarModal();
+      if (data.advertencia) alert(data.advertencia);
     } catch (error) {
       console.error(error);
-
-      setPacientes((prev) =>
-        prev.filter((p) => p.id !== id)
-      );
-      cerrarModal();
+      alert(error.response?.data?.error || "No se pudo eliminar el paciente.");
     }
   };
 
@@ -194,11 +213,14 @@ export default function Pacientes() {
           <h2 className="text-2xl font-bold text-slate-800">Pacientes</h2>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
-          <div className="relative w-64 hidden md:block">
+        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+          <div className="relative w-full sm:w-64">
             <input
               type="text"
               placeholder="Buscar paciente..."
+              aria-label="Buscar por nombre, DNI, teléfono o correo"
+              value={busqueda}
+              onChange={(event) => setBusqueda(event.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-[#11B9BB]"
             />
             <span className="absolute left-3 top-2.5 text-slate-400">
@@ -207,11 +229,43 @@ export default function Pacientes() {
               </svg>
             </span>
           </div>
-          <button className="p-2 border border-slate-200 rounded-xl bg-white text-slate-400 hover:text-slate-600 hidden md:block">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-            </svg>
-          </button>
+          <div className="relative self-end sm:self-auto">
+            <button
+              type="button"
+              aria-label="Abrir filtros de pacientes"
+              aria-expanded={mostrarFiltros}
+              onClick={() => setMostrarFiltros((visible) => !visible)}
+              className={`rounded-xl border p-2 transition ${filtroCitas !== "Todas" || mostrarFiltros ? "border-cyan-200 bg-cyan-50 text-cyan-800" : "border-slate-200 bg-white text-slate-400 hover:text-slate-600"}`}
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+            </button>
+            {mostrarFiltros && (
+              <div className="absolute right-0 z-20 mt-2 w-60 rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                <label className="block text-xs font-bold text-slate-600">
+                  Citas
+                  <select
+                    value={filtroCitas}
+                    onChange={(event) => setFiltroCitas(event.target.value)}
+                    className="mt-1.5 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#11B9BB]"
+                  >
+                    {["Todas", "Con cita próxima", "Sin cita próxima"].map((opcion) => (
+                      <option key={opcion} value={opcion}>{opcion}</option>
+                    ))}
+                  </select>
+                </label>
+                <p className="mt-2 text-[10px] text-slate-400">También puedes filtrar por deuda con las pestañas de abajo.</p>
+                <button
+                  type="button"
+                  onClick={() => { setFiltroCitas("Todas"); setFiltroActivo("Todos"); setMostrarFiltros(false); }}
+                  className="mt-3 w-full rounded-lg px-3 py-2 text-xs font-bold text-cyan-800 hover:bg-cyan-50"
+                >
+                  Limpiar filtros
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             onClick={abrirCrearPaciente}
@@ -385,6 +439,13 @@ export default function Pacientes() {
                   </tr>
                 );
               })}
+              {pacientesFiltrados.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-6 py-12 text-center text-sm text-slate-400">
+                    No se encontraron pacientes con la búsqueda y los filtros seleccionados.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

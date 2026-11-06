@@ -1,6 +1,7 @@
 import { Op } from "sequelize";
 import {
   Presupuesto, Paciente, Pago, PresupuestoDetalle, Servicio, ServicioSolicitado, Odontologo, Cita,
+  Atencion, Notificacion, Usuario,
 } from "../models/index.js";
 
 export const crearPresupuesto = async (req, res) => {
@@ -64,57 +65,188 @@ export const actualizarPresupuesto = async (req, res) => {
   }
 };
 
+const eliminarPresupuestoEnTransaccion = async (presupuesto, transaction) => {
+  const detalles = await PresupuestoDetalle.findAll({
+    attributes: ["id"],
+    where: { presupuesto_id: presupuesto.id },
+    transaction,
+  });
+  const detalleIds = detalles.map(({ id }) => id);
+
+  await Pago.update(
+    { presupuesto_id: null },
+    { where: { presupuesto_id: presupuesto.id }, transaction }
+  );
+
+  if (detalleIds.length > 0) {
+    const solicitudesVinculadas = await ServicioSolicitado.findAll({
+      attributes: ["id"],
+      where: { presupuesto_detalle_id: { [Op.in]: detalleIds } },
+      transaction,
+    });
+    const solicitudIds = solicitudesVinculadas.map(({ id }) => id);
+
+    await ServicioSolicitado.update(
+      { presupuesto_detalle_id: null },
+      { where: { presupuesto_detalle_id: { [Op.in]: detalleIds } }, transaction }
+    );
+    if (solicitudIds.length > 0) {
+      await ServicioSolicitado.update(
+        { estado: "pendiente" },
+        { where: { id: { [Op.in]: solicitudIds }, estado: "cotizado" }, transaction }
+      );
+    }
+    await PresupuestoDetalle.destroy({
+      where: { presupuesto_id: presupuesto.id },
+      transaction,
+    });
+  }
+
+  await presupuesto.destroy({ transaction });
+};
+
+const notificarEliminacionPresupuesto = async (presupuesto, actor, transaction) => {
+  let destinatarios;
+  if (actor === "odontologo") {
+    destinatarios = await Usuario.findAll({
+      attributes: ["id"],
+      where: {
+        activo: true,
+        rol: { [Op.in]: ["admin", "recepcionista"] },
+      },
+      transaction,
+    });
+  } else {
+    const odontologo = await Odontologo.findOne({
+      where: { nombre: presupuesto.doctor },
+      attributes: ["usuario_id"],
+      transaction,
+    });
+    destinatarios = odontologo?.usuario_id ? [{ id: odontologo.usuario_id }] : [];
+  }
+
+  if (destinatarios.length === 0) {
+    console.warn(`No se encontraron destinatarios para notificar la eliminación del presupuesto ${presupuesto.id}.`);
+    return false;
+  }
+
+  const paciente = await Paciente.findByPk(presupuesto.paciente_id, {
+    attributes: ["nombres", "apellidos"],
+    transaction,
+  });
+  const nombrePaciente = [paciente?.nombres, paciente?.apellidos].filter(Boolean).join(" ") || "el paciente";
+  const eliminadoPor = actor === "odontologo" ? presupuesto.doctor : "Recepción";
+  const notificacion = {
+    titulo: actor === "odontologo" ? "Presupuesto eliminado por odontología" : "Presupuesto eliminado por recepción",
+    mensaje: `${eliminadoPor} eliminó el presupuesto "${presupuesto.descripcion}" de ${nombrePaciente}.`,
+    tipo: "presupuesto_eliminado",
+    canal: "app",
+    leida: false,
+  };
+
+  await Notificacion.bulkCreate(
+    destinatarios.map(({ id }) => ({ ...notificacion, usuario_id: id })),
+    { transaction }
+  );
+  return true;
+};
+
+const eliminarPresupuestoCompartido = async ({ presupuestoId, pacienteId, actor, usuarioId }) =>
+  Presupuesto.sequelize.transaction(async (transaction) => {
+    const presupuesto = await Presupuesto.findByPk(presupuestoId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!presupuesto) return false;
+
+    if (actor === "odontologo") {
+      if (pacienteId && Number(presupuesto.paciente_id) !== Number(pacienteId)) return false;
+      const odontologo = await Odontologo.findOne({
+        where: { usuario_id: usuarioId },
+        transaction,
+      });
+      if (!odontologo || presupuesto.doctor !== odontologo.nombre) return false;
+
+      const [cita, atencion] = await Promise.all([
+        Cita.findOne({
+          where: { paciente_id: presupuesto.paciente_id, odontologo_id: odontologo.id },
+          transaction,
+        }),
+        Atencion.findOne({
+          where: { paciente_id: presupuesto.paciente_id, odontologo_id: odontologo.id },
+          transaction,
+        }),
+      ]);
+      if (!cita && !atencion) return false;
+    }
+
+    await eliminarPresupuestoEnTransaccion(presupuesto, transaction);
+    const notificacionEnviada = await notificarEliminacionPresupuesto(presupuesto, actor, transaction);
+    return { eliminado: true, notificacionEnviada };
+  });
+
 export const eliminarPresupuesto = async (req, res) => {
   try {
-    const eliminado = await Presupuesto.sequelize.transaction(async (transaction) => {
-      const presupuesto = await Presupuesto.findByPk(req.params.id, {
-        transaction,
-        lock: transaction.LOCK.UPDATE,
-      });
-      if (!presupuesto) return false;
-
-      const detalles = await PresupuestoDetalle.findAll({
-        attributes: ["id"],
-        where: { presupuesto_id: presupuesto.id },
-        transaction,
-      });
-      const detalleIds = detalles.map(({ id }) => id);
-
-      await Pago.update(
-        { presupuesto_id: null },
-        { where: { presupuesto_id: presupuesto.id }, transaction }
-      );
-
-      if (detalleIds.length > 0) {
-        const solicitudesVinculadas = await ServicioSolicitado.findAll({
-          attributes: ["id"],
-          where: { presupuesto_detalle_id: { [Op.in]: detalleIds } },
-          transaction,
-        });
-        const solicitudIds = solicitudesVinculadas.map(({ id }) => id);
-
-        await ServicioSolicitado.update(
-          { presupuesto_detalle_id: null },
-          { where: { presupuesto_detalle_id: { [Op.in]: detalleIds } }, transaction }
-        );
-        if (solicitudIds.length > 0) {
-          await ServicioSolicitado.update(
-            { estado: "pendiente" },
-            { where: { id: { [Op.in]: solicitudIds }, estado: "cotizado" }, transaction }
-          );
-        }
-        await PresupuestoDetalle.destroy({
-          where: { presupuesto_id: presupuesto.id },
-          transaction,
-        });
-      }
-
-      await presupuesto.destroy({ transaction });
-      return true;
+    const resultado = await eliminarPresupuestoCompartido({
+      presupuestoId: req.params.id,
+      actor: "recepcion",
     });
+    if (!resultado) return res.status(404).json({ error: "Presupuesto no encontrado" });
+    res.json({
+      mensaje: resultado.notificacionEnviada
+        ? "Presupuesto eliminado y notificación enviada."
+        : "Presupuesto eliminado, pero no se encontró un usuario odontólogo activo para notificar.",
+      notificacionEnviada: resultado.notificacionEnviada,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
 
-    if (!eliminado) return res.status(404).json({ error: "Presupuesto no encontrado" });
-    res.json({ mensaje: "Presupuesto eliminado" });
+export const listarPresupuestosOdontologoPaciente = async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.id) || Number(req.params.id) < 1) {
+      return res.status(400).json({ error: "Paciente no válido." });
+    }
+    const odontologo = await Odontologo.findOne({ where: { usuario_id: req.user.id } });
+    if (!odontologo) return res.status(404).json({ error: "No se encontró el perfil odontológico." });
+
+    const [cita, atencion] = await Promise.all([
+      Cita.findOne({ where: { paciente_id: Number(req.params.id), odontologo_id: odontologo.id } }),
+      Atencion.findOne({ where: { paciente_id: Number(req.params.id), odontologo_id: odontologo.id } }),
+    ]);
+    if (!cita && !atencion) return res.status(403).json({ error: "No tienes acceso a este paciente." });
+
+    const presupuestos = await Presupuesto.findAll({
+      where: { paciente_id: Number(req.params.id), doctor: odontologo.nombre },
+      include: [{ model: PresupuestoDetalle }, { model: Cita, attributes: ["id", "fecha", "hora_inicio"] }],
+      order: [["created_at", "DESC"]],
+    });
+    res.json(presupuestos);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const eliminarPresupuestoOdontologo = async (req, res) => {
+  try {
+    if (!/^\d+$/.test(req.params.presupuestoId) || Number(req.params.presupuestoId) < 1 ||
+        !/^\d+$/.test(req.params.id) || Number(req.params.id) < 1) {
+      return res.status(400).json({ error: "Presupuesto no válido." });
+    }
+    const resultado = await eliminarPresupuestoCompartido({
+      presupuestoId: req.params.presupuestoId,
+      pacienteId: req.params.id,
+      actor: "odontologo",
+      usuarioId: req.user.id,
+    });
+    if (!resultado) return res.status(404).json({ error: "Presupuesto no encontrado o no pertenece a tu atención." });
+    res.json({
+      mensaje: resultado.notificacionEnviada
+        ? "Presupuesto eliminado y Recepción fue notificada."
+        : "Presupuesto eliminado, pero no se encontró un usuario activo de Recepción para notificar.",
+      notificacionEnviada: resultado.notificacionEnviada,
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

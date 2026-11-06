@@ -246,6 +246,10 @@ export const aprobarSolicitudCita = async (req, res) => {
     if (resultado.estado === "horario-ocupado") {
       return res.status(409).json({ error: "Ese odontólogo ya tiene una cita en la fecha y hora seleccionadas." });
     }
+    await crearConfirmacionCita(resultado.cita);
+    if (String(resultado.cita.fecha).slice(0, 10) === obtenerFechaLocalISO()) {
+      await crearNotificacionCita(resultado.cita, { enviarEmail: true });
+    }
     await notificarPersonal({
       titulo: "Solicitud de cita confirmada",
       mensaje: `La solicitud de cita del ${String(resultado.cita.fecha).slice(0, 10)} a las ${String(resultado.cita.hora_inicio).slice(0, 5)} fue confirmada por recepción.`,

@@ -1,6 +1,7 @@
 import express from "express";
 import {
   listarMisPacientes,
+  obtenerResumenInicioOdontologo,
   obtenerFichaPaciente,
   listarHistoriaPaciente,
   registrarAtencion,
@@ -33,11 +34,16 @@ import {
   crearEvaluacionPeriodontal,
   listarEvaluacionesPeriodontales,
 } from "../controllers/periodontogramaController.js";
+import {
+  eliminarPresupuestoOdontologo,
+  listarPresupuestosOdontologoPaciente,
+} from "../controllers/presupuestoController.js";
 
 const router = express.Router();
 
 router.use(auth, requireStaff);
 router.get("/mis-pacientes", listarMisPacientes);
+router.get("/resumen-inicio", requireOdontologist, obtenerResumenInicioOdontologo);
 router.get("/pacientes/:id/ficha", obtenerFichaPaciente);
 router.get("/pacientes/:id/historia", listarHistoriaPaciente);
 router.get("/pacientes/:id/citas", listarCitasPaciente);
@@ -58,6 +64,8 @@ router.put("/pacientes/:id/documentos/:documentoId/visibilidad-paciente", requir
 router.get("/pacientes/:id/servicios-solicitados", requireOdontologist, listarServiciosSolicitados);
 router.post("/pacientes/:id/servicios-solicitados", requireOdontologist, crearServicioSolicitado);
 router.delete("/pacientes/:id/servicios-solicitados/:solicitudId", requireOdontologist, retirarServicioSolicitado);
+router.get("/pacientes/:id/presupuestos", requireOdontologist, listarPresupuestosOdontologoPaciente);
+router.delete("/pacientes/:id/presupuestos/:presupuestoId", requireOdontologist, eliminarPresupuestoOdontologo);
 
 router.get("/pacientes/:id/:recurso", listarHistoriaRecurso);
 router.post("/pacientes/:id/:recurso", crearHistoriaRecurso);

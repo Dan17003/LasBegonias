@@ -81,7 +81,9 @@ const menuItems = [
     label: "Asistente IA",
     icon: (
       <svg className={iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.364-6.364-1.414 1.414M7.05 16.95l-1.414 1.414m12.728 0-1.414-1.414M7.05 7.05 5.636 5.636M8 9h8v6H8zM10 15v2m4-2v2" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3.75 13.2 7l3.3 1.2-3.3 1.2L12 12.75l-1.2-3.35-3.3-1.2L10.8 7 12 3.75Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6.5 11h11a2 2 0 0 1 2 2v4.25a2 2 0 0 1-2 2H11l-3.75 2v-2H6.5a2 2 0 0 1-2-2V13a2 2 0 0 1 2-2Z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 14.5h.01m3 0h.01m3 0h.01" />
       </svg>
     ),
   },

@@ -5,6 +5,7 @@ import {
   toNumber,
   getPacienteId,
   calcularDeudas,
+  calcularSaldosPresupuestos,
   formatearMoneda,
 } from "../utils/finanzas";
 import { exportarExcel, descargarPDF, imprimirHTML } from "../utils/exportar";
@@ -166,6 +167,17 @@ export default function Finanzas() {
         return item ? item.saldo : 0;
     };
 
+    const saldosPresupuestos = useMemo(
+        () => calcularSaldosPresupuestos(presupuestos, pagos),
+        [presupuestos, pagos]
+    );
+    const presupuestosPagados = saldosPresupuestos.filter(
+        ({ saldo, pagado }) => saldo === 0 && pagado > 0
+    );
+    const presupuestosPendientes = saldosPresupuestos.filter(
+        (item) => !presupuestosPagados.includes(item)
+    );
+
     const abrirPagoDesdePresupuesto = (
         presupuesto,
         saldo = saldoPresupuesto(presupuesto.id),
@@ -265,14 +277,15 @@ export default function Finanzas() {
 
     const eliminarPresupuesto = async (presupuesto) => {
         const confirmar = window.confirm(
-            `¿Eliminar el presupuesto "${presupuesto.descripcion}"? Los pagos vinculados quedarán sin presupuesto y las solicitudes clínicas asociadas volverán a quedar pendientes.`
+            `¿Eliminar el presupuesto "${presupuesto.descripcion}"? Se eliminará también para odontología y se notificará al odontólogo. Los pagos vinculados quedarán sin presupuesto y las solicitudes clínicas asociadas volverán a quedar pendientes.`
         );
         if (!confirmar) return;
 
         try {
-            await api.delete(`/presupuestos/${presupuesto.id}`);
-            obtenerPresupuestos();
+            const { data } = await api.delete(`/presupuestos/${presupuesto.id}`);
+            setPresupuestos((actuales) => actuales.filter((item) => item.id !== presupuesto.id));
             obtenerPagos();
+            if (data?.notificacionEnviada === false) alert(data.mensaje);
         } catch (error) {
             alert(error.response?.data?.error || "No se pudo eliminar el presupuesto.");
         }
@@ -351,15 +364,6 @@ export default function Finanzas() {
                 </div>
             `,
         });
-    };
-
-    const enviarPresupuesto = async (presupuesto) => {
-        const paciente = pacientes.find(p => p.id === presupuesto.paciente_id);
-        if (!paciente?.email) {
-            alert("El paciente no tiene correo registrado.");
-            return;
-        }
-        alert(`Presupuesto preparado para enviar a ${paciente.email}. (Funcionalidad de correo en desarrollo)`);
     };
 
     const deudasPendientes = useMemo(() => {
@@ -550,9 +554,14 @@ export default function Finanzas() {
                                         <th className="px-4 py-3 text-center font-semibold">Acciones</th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {presupuestos.map((p) => (
-                                        <tr key={p.id} className="hover:bg-slate-50">
+                                <tbody>
+                                    <tr className="bg-amber-50">
+                                        <th colSpan={8} className="px-4 py-3 text-left text-xs font-extrabold uppercase tracking-wide text-amber-800">
+                                            Pendientes de pago <span className="ml-1 rounded-full bg-white px-2 py-0.5">{presupuestosPendientes.length}</span>
+                                        </th>
+                                    </tr>
+                                    {presupuestosPendientes.map(({ presupuesto: p, saldo }) => (
+                                        <tr key={p.id} className="border-b border-slate-100 hover:bg-amber-50/40">
                                             <td className="px-4 py-3">{pacientes.find(pc => pc.id === p.paciente_id)?.nombres || "N/A"}</td>
                                             <td className="px-4 py-3">{p.descripcion}</td>
                                             <td className="px-4 py-3">
@@ -561,7 +570,10 @@ export default function Finanzas() {
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-xs text-slate-500">{p.Citum ? `${p.Citum.fecha} ${p.Citum.hora_inicio?.slice(0, 5)}` : "No asociada"}</td>
-                                            <td className="px-4 py-3 font-semibold text-[#11B9BB]">{formatearMoneda(p.monto)}</td>
+                                            <td className="px-4 py-3 font-semibold text-[#11B9BB]">
+                                                {formatearMoneda(p.monto)}
+                                                <span className="mt-1 block text-[11px] font-medium text-amber-700">Saldo: {formatearMoneda(saldo)}</span>
+                                            </td>
                                             <td className="px-4 py-3 text-slate-600">{p.doctor}</td>
                                             <td className="px-4 py-3 text-slate-500">{p.fecha_vigencia || "Sin vencimiento"}</td>
                                             <td className="px-4 py-3">
@@ -584,21 +596,57 @@ export default function Finanzas() {
                                                     >
                                                         Imprimir
                                                     </button>
-                                                    <button
-                                                        onClick={() => enviarPresupuesto(p)}
-                                                        className="px-3 py-1 bg-green-50 text-green-700 rounded-lg text-xs font-semibold hover:bg-green-100"
-                                                    >
-                                                        Enviar
-                                                    </button>
-                                                    {saldoPresupuesto(p.id) > 0 && (
+                                                    {saldo > 0 && (
                                                         <button
                                                             type="button"
-                                                            onClick={() => abrirPagoDesdePresupuesto(p)}
+                                                            onClick={() => abrirPagoDesdePresupuesto(p, saldo)}
                                                             className="px-3 py-1 rounded-lg bg-[#11B9BB] text-xs font-semibold text-white hover:bg-[#0ea5a7]"
                                                         >
                                                             Registrar pago
                                                         </button>
                                                     )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    <tr className="border-t-2 border-slate-200 bg-slate-100/80">
+                                        <th colSpan={8} className="px-4 py-3 text-left text-xs font-extrabold uppercase tracking-wide text-slate-500">
+                                            Pagados <span className="ml-1 rounded-full bg-white px-2 py-0.5">{presupuestosPagados.length}</span>
+                                        </th>
+                                    </tr>
+                                    {presupuestosPagados.map(({ presupuesto: p }) => (
+                                        <tr key={p.id} className="border-b border-slate-100 bg-slate-50/70 text-slate-500">
+                                            <td className="px-4 py-3">{pacientes.find(pc => pc.id === p.paciente_id)?.nombres || "N/A"}</td>
+                                            <td className="px-4 py-3">{p.descripcion}</td>
+                                            <td className="px-4 py-3">
+                                                <span className="rounded-full bg-slate-200/80 px-2.5 py-1 text-[10px] font-bold text-slate-500">
+                                                    {p.origen === "odontologia" ? "Solicitud odontología" : "Recepción"}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-3 text-xs">{p.Citum ? `${p.Citum.fecha} ${p.Citum.hora_inicio?.slice(0, 5)}` : "No asociada"}</td>
+                                            <td className="px-4 py-3 font-semibold">{formatearMoneda(p.monto)}<span className="mt-1 block text-[11px] font-medium text-emerald-700">Pagado</span></td>
+                                            <td className="px-4 py-3">{p.doctor}</td>
+                                            <td className="px-4 py-3">{p.fecha_vigencia || "Sin vencimiento"}</td>
+                                            <td className="px-4 py-3">
+                                                <div className="flex flex-wrap justify-center gap-1.5">
+                                                    <button
+                                                        onClick={() => abrirEditarPresupuesto(p)}
+                                                        className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100"
+                                                    >
+                                                        Editar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => eliminarPresupuesto(p)}
+                                                        className="rounded-lg bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-500 hover:bg-rose-100"
+                                                    >
+                                                        Eliminar
+                                                    </button>
+                                                    <button
+                                                        onClick={() => imprimirPresupuesto(p)}
+                                                        className="rounded-lg bg-slate-200/70 px-3 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-200"
+                                                    >
+                                                        Imprimir
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>

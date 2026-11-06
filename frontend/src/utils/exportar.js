@@ -33,76 +33,154 @@ export const exportarExcel = (hojas, nombreArchivo) => {
   if (!hojas?.length) return;
 
   const wb = XLSX.utils.book_new();
-  hojas.forEach(({ nombre, datos }) => {
+  const generado = new Date().toLocaleString("es-PE");
+  hojas.forEach(({ nombre, datos, formatos = {} }) => {
     if (!datos?.length) return;
-    const ws = XLSX.utils.json_to_sheet(datos);
-    const colWidths = Object.keys(datos[0]).map((key) => ({
-      wch: Math.max(key.length, ...datos.map((f) => String(f[key] ?? "").length)) + 2,
+
+    const encabezados = Object.keys(datos[0]);
+    const ws = XLSX.utils.aoa_to_sheet([
+      [nombre],
+      [`Generado: ${generado}`],
+      [],
+      encabezados,
+      ...datos.map((fila) => encabezados.map((key) => fila[key] ?? "")),
+    ]);
+    const ultimaColumna = encabezados.length - 1;
+    const ultimaFila = datos.length + 3;
+    ws["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: ultimaColumna } }];
+    ws["!autofilter"] = {
+      ref: XLSX.utils.encode_range({
+        s: { r: 3, c: 0 },
+        e: { r: ultimaFila, c: ultimaColumna },
+      }),
+    };
+    ws["!cols"] = encabezados.map((key) => ({
+      wch: Math.min(
+        44,
+        Math.max(
+          14,
+          key.length + 2,
+          ...datos.map((fila) => String(fila[key] ?? "").length + 2),
+        ),
+      ),
     }));
-    ws["!cols"] = colWidths;
+
+    encabezados.forEach((key, columnIndex) => {
+      const formato = formatos[key] === "moneda"
+        ? '"S/ " #,##0.00'
+        : formatos[key] === "porcentaje"
+          ? "0.0%"
+          : null;
+      if (!formato) return;
+
+      datos.forEach((_, rowIndex) => {
+        const cell = ws[XLSX.utils.encode_cell({ r: rowIndex + 4, c: columnIndex })];
+        if (cell && typeof cell.v === "number") cell.z = formato;
+      });
+    });
+
     XLSX.utils.book_append_sheet(wb, ws, nombre.slice(0, 31));
   });
 
   if (wb.SheetNames.length === 0) return;
+  wb.Props = {
+    Title: "Reporte de Clínica Las Begonias",
+    Subject: "Indicadores y actividad de la clínica",
+    Creator: "Clínica Las Begonias",
+    CreatedDate: new Date(),
+  };
   XLSX.writeFile(wb, `${nombreArchivo}.xlsx`);
 };
 
 export const descargarPDF = ({ titulo, periodo, resumen = [], tablas = [], nombreArchivo }) => {
   const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const generado = new Date().toLocaleString("es-PE");
 
-  doc.setFontSize(18);
-  doc.setTextColor(17, 185, 187);
-  doc.text(titulo, 14, 20);
+  doc.setFillColor(8, 127, 129);
+  doc.rect(0, 0, pageWidth, 3, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(17);
+  doc.setTextColor(8, 76, 80);
+  const tituloLineas = doc.splitTextToSize(titulo, pageWidth - 28);
+  doc.text(tituloLineas, 14, 17);
 
+  const periodoY = 18 + tituloLineas.length * 7;
   doc.setFontSize(10);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Periodo: ${periodo || "Sin periodo"}`, 14, periodoY);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Periodo: ${periodo}`, 14, 28);
-  doc.text(`Generado: ${new Date().toLocaleString("es-PE")}`, 14, 34);
+  doc.text(`Generado: ${generado}`, 14, periodoY + 6);
 
-  let yPos = 42;
+  let yPos = periodoY + 13;
 
   if (resumen.length) {
     const cardW = (pageWidth - 28 - (resumen.length - 1) * 4) / resumen.length;
     resumen.forEach((item, i) => {
       const x = 14 + i * (cardW + 4);
-      doc.setDrawColor(226, 232, 240);
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(x, yPos, cardW, 22, 2, 2, "FD");
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text(item.label.toUpperCase(), x + 4, yPos + 7);
-      doc.setFontSize(13);
-      doc.setTextColor(15, 23, 42);
-      doc.text(String(item.value), x + 4, yPos + 17);
+      doc.setDrawColor(207, 230, 229);
+      doc.setFillColor(244, 251, 250);
+      doc.roundedRect(x, yPos, cardW, 24, 2, 2, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139);
+      const labelLineas = doc.splitTextToSize(String(item.label).toUpperCase(), cardW - 8);
+      doc.text(labelLineas.slice(0, 2), x + 4, yPos + 6);
+      doc.setFontSize(11);
+      doc.setTextColor(15, 54, 68);
+      const valor = String(item.value ?? "");
+      while (doc.getTextWidth(valor) > cardW - 8 && doc.getFontSize() > 8) {
+        doc.setFontSize(doc.getFontSize() - 0.5);
+      }
+      doc.text(valor, x + 4, yPos + 19);
     });
-    yPos += 30;
+    yPos += 32;
   }
 
   tablas.forEach(({ titulo: tituloTabla, columnas, filas }) => {
-    if (yPos > 240) {
+    if (!columnas?.length) return;
+    if (yPos > pageHeight - 48) {
       doc.addPage();
       yPos = 20;
     }
 
-    doc.setFontSize(12);
-    doc.setTextColor(15, 23, 42);
-    doc.text(tituloTabla, 14, yPos);
-    yPos += 4;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(8, 76, 80);
+    const tituloTablaLineas = doc.splitTextToSize(tituloTabla, pageWidth - 28);
+    doc.text(tituloTablaLineas, 14, yPos);
+    yPos += tituloTablaLineas.length * 5 + 2;
 
     autoTable(doc, {
       startY: yPos,
       head: [columnas.map((c) => c.header)],
-      body: filas.map((fila) => columnas.map((c) => fila[c.key] ?? "")),
-      theme: "grid",
-      headStyles: { fillColor: [17, 185, 187], textColor: 255, fontSize: 9 },
-      bodyStyles: { fontSize: 9 },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-      margin: { left: 14, right: 14 },
+      body: filas.length
+        ? filas.map((fila) => columnas.map((c) => fila[c.key] ?? ""))
+        : [columnas.map((_, index) => index === 0 ? "Sin datos para este periodo" : "")],
+      theme: "striped",
+      headStyles: { fillColor: [8, 127, 129], textColor: 255, fontSize: 8, fontStyle: "bold" },
+      bodyStyles: { fontSize: 8, textColor: [51, 65, 85], cellPadding: 2.5, lineColor: [226, 232, 240] },
+      alternateRowStyles: { fillColor: [243, 249, 249] },
+      margin: { top: 14, bottom: 20, left: 14, right: 14 },
+      rowPageBreak: "avoid",
+      styles: { overflow: "linebreak", valign: "middle" },
     });
 
     yPos = doc.lastAutoTable.finalY + 12;
   });
+
+  const totalPaginas = doc.internal.getNumberOfPages();
+  for (let pagina = 1; pagina <= totalPaginas; pagina += 1) {
+    doc.setPage(pagina);
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, pageHeight - 13, pageWidth - 14, pageHeight - 13);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Clínica Las Begonias · Reporte administrativo", 14, pageHeight - 8);
+    doc.text(`Página ${pagina} de ${totalPaginas}`, pageWidth - 14, pageHeight - 8, { align: "right" });
+  }
 
   doc.save(`${nombreArchivo}.pdf`);
 };
